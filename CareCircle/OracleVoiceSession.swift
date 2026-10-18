@@ -113,6 +113,8 @@ final class CareCircleVoiceSession: NSObject, ObservableObject {
     private var captureTimeout: Task<Void, Never>?
     private var audio: AsyncStream<Data>.Continuation?
     private var conversation: Conversation?
+    // Keep the companion softer than full-level call audio, including after interruptions.
+    private let agentPlaybackVolume: Double = 0.6
     private var subscriptions = Set<AnyCancellable>()
     private var inputMeter: ConversationMeter?
     private var voiceShutdown: Task<Void, Never>?
@@ -361,6 +363,7 @@ final class CareCircleVoiceSession: NSObject, ObservableObject {
             let connected = try await ElevenLabs.startConversation(conversationToken: session.token, config: config)
             guard generation == turn, !Task.isCancelled else { await connected.endConversation(); return }
             conversation = connected
+            connected.agentAudioTrack?.volume = agentPlaybackVolume
             phase = .listening
             audioIsBeingSent = true
             let meter = ConversationMeter { [weak self] bass, treble in
@@ -375,7 +378,7 @@ final class CareCircleVoiceSession: NSObject, ObservableObject {
             connected.$agentState.sink { [weak self] state in
                 guard let self, self.generation == turn else { return }
                 self.phase = state == .speaking ? .speaking : .listening
-                if state == .listening { self.conversation?.agentAudioTrack?.volume = 1 }
+                self.conversation?.agentAudioTrack?.volume = self.agentPlaybackVolume
             }.store(in: &subscriptions)
             connected.$isMuted.sink { [weak self] muted in
                 guard let self, self.generation == turn else { return }
