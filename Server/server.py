@@ -1,4 +1,4 @@
-"""Personal Care Circle backend for Oracle chat and speech. No conversation persistence or payload logging."""
+"""Personal Encircle backend for Oracle chat and speech. No conversation persistence or payload logging."""
 
 import hmac
 import json
@@ -12,7 +12,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SYSTEM_PROMPT = """You are Care Circle, a warm, attentive conversational companion for health and everyday life.
+SYSTEM_PROMPT = """You are Encircle, a warm, attentive conversational companion for health and everyday life.
 Speak naturally, like a thoughtful person in a conversation. Respond directly to what the person just said,
 remember the conversation, and adapt to their tone. Usually answer in one to three short sentences.
 Do not repeatedly introduce yourself, recite disclaimers, or turn every answer into a list or an interview.
@@ -333,7 +333,7 @@ def make_handler(chat, token, voice=None, coordinator=None):
             except VoiceUnavailable as error:
                 self.reply(503, {"error": str(error)})
             except BusyError:
-                self.reply(429, {"error": "Care Circle is answering another request. Please try again shortly."})
+                self.reply(429, {"error": "Encircle is answering another request. Please try again shortly."})
             except Exception as error:
                 status = getattr(error, "status", 0)
                 if status == 429:
@@ -348,16 +348,16 @@ def make_handler(chat, token, voice=None, coordinator=None):
 
 def main():
     load_environment(Path(__file__).with_name(".env"))
-    required = ["OCI_COMPARTMENT_ID", "OCI_MODEL_ID", "CARECIRCLE_APP_TOKEN"]
+    required = ["OCI_COMPARTMENT_ID", "OCI_MODEL_ID", "ENCIRCLE_APP_TOKEN"]
     missing = [key for key in required if not os.environ.get(key)]
     if missing:
         raise SystemExit("Configure Server/.env first. Missing: " + ", ".join(missing))
-    token = os.environ["CARECIRCLE_APP_TOKEN"]
+    token = os.environ["ENCIRCLE_APP_TOKEN"]
     if len(token) < 32:
-        raise SystemExit("CARECIRCLE_APP_TOKEN must contain at least 32 characters.")
+        raise SystemExit("ENCIRCLE_APP_TOKEN must contain at least 32 characters.")
     chat = OracleChat()
-    host = os.environ.get("CARECIRCLE_HOST", "127.0.0.1")
-    port = int(os.environ.get("CARECIRCLE_PORT", "8787"))
+    host = os.environ.get("ENCIRCLE_HOST", "127.0.0.1")
+    port = int(os.environ.get("ENCIRCLE_PORT", "8787"))
     coordinator = None
     if os.environ.get("COORDINATOR_BUCKET"):
         from coordinator import Coordinator, OracleState
@@ -365,7 +365,7 @@ def main():
         coordinator.seed(json.loads((Path(__file__).parent / "fixtures/appointments.json").read_text()))
         coordinator.start()
     server = ThreadingHTTPServer((host, port), make_handler(chat, token, ElevenLabsVoice(), coordinator))
-    print(f"Care Circle development bridge listening on {host}:{port}. No conversation logging.")
+    print(f"Encircle development bridge listening on {host}:{port}. No conversation logging.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

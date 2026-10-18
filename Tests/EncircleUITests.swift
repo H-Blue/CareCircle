@@ -1,6 +1,6 @@
 import XCTest
 
-final class CareCircleUITests: XCTestCase {
+final class EncircleUITests: XCTestCase {
     func testSMSConsentStartsUncheckedAndShowsActualDisclosure() {
         let app = XCUIApplication()
         app.launch()
@@ -12,7 +12,7 @@ final class CareCircleUITests: XCTestCase {
         XCTAssertTrue(disclosure.contains("Message and data rates may apply"))
         XCTAssertTrue(disclosure.contains("STOP")); XCTAssertTrue(disclosure.contains("HELP"))
         let top = XCTAttachment(screenshot: app.screenshot())
-        top.name = "CareCircle-SMS-disclosure"; top.lifetime = .keepAlways; add(top)
+        top.name = "Encircle-SMS-disclosure"; top.lifetime = .keepAlways; add(top)
         let checkbox = app.buttons["SMS consent checkbox"]
         for _ in 0..<3 { if checkbox.isHittable { break }; app.swipeUp() }
         XCTAssertTrue(checkbox.isHittable)
@@ -22,7 +22,7 @@ final class CareCircleUITests: XCTestCase {
         XCTAssertEqual(app.textFields["SMS consent name"].value as? String, "Your name")
         XCTAssertEqual(app.textFields["SMS consent phone"].value as? String, "Your mobile number")
         let blank = XCTAttachment(screenshot: app.screenshot())
-        blank.name = "CareCircle-SMS-blank-opt-in"; blank.lifetime = .keepAlways; add(blank)
+        blank.name = "Encircle-SMS-blank-opt-in"; blank.lifetime = .keepAlways; add(blank)
         checkbox.tap()
         XCTAssertEqual(checkbox.value as? String, "Checked")
         XCTAssertFalse(save.isEnabled)
@@ -41,7 +41,7 @@ final class CareCircleUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "To appointment:")).firstMatch.exists)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Ride home:")).firstMatch.exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "CareCircle-coordinator-cloud"; screenshot.lifetime = .keepAlways; add(screenshot)
+        screenshot.name = "Encircle-coordinator-cloud"; screenshot.lifetime = .keepAlways; add(screenshot)
     }
     func testCalendarSyncAndTransportNotesPersistWithoutDuplicates() {
         let app = XCUIApplication()
@@ -76,7 +76,7 @@ final class CareCircleUITests: XCTestCase {
         app.buttons["Save transport details"].tap()
         XCTAssertTrue(synced.waitForExistence(timeout: 30))
         let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "CareCircle-calendar-transport"; screenshot.lifetime = .keepAlways; add(screenshot)
+        screenshot.name = "Encircle-calendar-transport"; screenshot.lifetime = .keepAlways; add(screenshot)
         app.terminate(); app.launch()
         app.buttons["Open menu"].tap()
         app.buttons["Apple Calendar & transport"].tap()
@@ -97,7 +97,7 @@ final class CareCircleUITests: XCTestCase {
         XCTAssertFalse(recap.label.localizedCaseInsensitiveContains("fracture"))
         XCTAssertFalse(app.staticTexts["Visit saved. Find your transcript and AI summary in the top-left menu."].exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "CareCircle-home-recap"; screenshot.lifetime = .keepAlways; add(screenshot)
+        screenshot.name = "Encircle-home-recap"; screenshot.lifetime = .keepAlways; add(screenshot)
         app.terminate(); app.launchArguments = []; app.launch()
         XCTAssertTrue(recap.waitForExistence(timeout: 10))
         app.buttons["View appointment"].tap()
@@ -108,13 +108,15 @@ final class CareCircleUITests: XCTestCase {
         app.buttons["Got it"].tap()
         XCTAssertFalse(recap.exists)
         XCTAssertTrue(app.staticTexts["Hi, what can I\nhelp with?"].exists)
+        let home = XCTAttachment(screenshot: app.screenshot())
+        home.name = "Encircle-home"; home.lifetime = .keepAlways; add(home)
     }
 
     func testVoiceModeTransitionAndExit() {
         let app = XCUIApplication()
         app.launch()
         XCTAssertTrue(app.buttons["Open menu"].waitForExistence(timeout: 10))
-        app.buttons["Speak to Care Circle"].tap()
+        app.buttons["Speak to Encircle"].tap()
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let allowMicrophone = springboard.alerts.buttons["Allow"]
         if allowMicrophone.waitForExistence(timeout: 3) { allowMicrophone.tap() }
@@ -126,7 +128,7 @@ final class CareCircleUITests: XCTestCase {
         app.buttons["Resume microphone"].tap()
         XCTAssertTrue(app.buttons["Pause microphone"].waitForExistence(timeout: 5))
         let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "CareCircle-voice-mode"
+        attachment.name = "Encircle-voice-mode"
         attachment.lifetime = .keepAlways
         add(attachment)
         app.buttons["End conversation"].tap()
@@ -143,9 +145,9 @@ final class CareCircleUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Open menu"].exists)
         XCTAssertTrue(app.staticTexts["Recording…"].waitForExistence(timeout: 30))
         let screenshot = app.screenshot()
-        try? screenshot.pngRepresentation.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("CareCircle-Visit.png"))
+        try? screenshot.pngRepresentation.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("Encircle-Visit.png"))
         let image = XCTAttachment(screenshot: screenshot)
-        image.name = "CareCircle-visit-recording"; image.lifetime = .keepAlways; add(image)
+        image.name = "Encircle-visit-recording"; image.lifetime = .keepAlways; add(image)
         app.buttons["Finish visit recording"].tap()
         XCTAssertTrue(app.buttons["Open menu"].waitForExistence(timeout: 10))
         app.terminate(); app.launchArguments = []; app.launch()
@@ -158,7 +160,7 @@ final class CareCircleUITests: XCTestCase {
         }, evaluatedWith: app)
         wait(for: [menuPresented], timeout: 5)
         let menuImage = XCTAttachment(screenshot: app.screenshot())
-        menuImage.name = "CareCircle-appointments-menu"; menuImage.lifetime = .keepAlways; add(menuImage)
+        menuImage.name = "Encircle-appointments-menu"; menuImage.lifetime = .keepAlways; add(menuImage)
         savedVisit.swipeLeft()
         XCTAssertTrue(app.buttons["Archive"].firstMatch.waitForExistence(timeout: 5))
         savedVisit.swipeRight()
@@ -170,7 +172,7 @@ final class CareCircleUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["AI summary"].waitForExistence(timeout: 5))
         app.buttons["Done"].tap()
         let transcriptImage = XCTAttachment(screenshot: app.screenshot())
-        transcriptImage.name = "CareCircle-cream-transcript"; transcriptImage.lifetime = .keepAlways; add(transcriptImage)
+        transcriptImage.name = "Encircle-cream-transcript"; transcriptImage.lifetime = .keepAlways; add(transcriptImage)
         app.swipeLeft()
         XCTAssertTrue(app.navigationBars["Appointments"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons[visitIdentifier].exists)
@@ -189,7 +191,7 @@ final class CareCircleUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--test-visit-tool"]
         app.launch()
-        app.buttons["Speak to Care Circle"].tap()
+        app.buttons["Speak to Encircle"].tap()
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let allow = springboard.alerts.buttons["Allow"]
         if allow.waitForExistence(timeout: 2) { allow.tap() }

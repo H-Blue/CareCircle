@@ -15,10 +15,10 @@ from server import load_environment
 def main():
     root = Path(__file__).resolve().parent.parent
     load_environment(root / "Server/.env")
-    token = os.environ.get("CARECIRCLE_APP_TOKEN", "")
+    token = os.environ.get("ENCIRCLE_APP_TOKEN", "")
     if len(token) < 32:
         raise SystemExit("Configure Server/.env first. See Server/README.md.")
-    port = int(os.environ.get("CARECIRCLE_PORT", "8787"))
+    port = int(os.environ.get("ENCIRCLE_PORT", "8787"))
     address = f"http://localhost:{port}"
 
     def ready():
@@ -32,7 +32,7 @@ def main():
             return False
 
     if not ready():
-        log = Path(tempfile.gettempdir()) / "carecircle-development-server.log"
+        log = Path(tempfile.gettempdir()) / "encircle-development-server.log"
         with log.open("a") as output:
             subprocess.Popen([sys.executable, str(root / "Server/server.py")], cwd=root,
                              stdout=output, stderr=output, start_new_session=True)
@@ -53,25 +53,25 @@ def main():
         subprocess.run(["xcrun", "simctl", "boot", device["udid"]], check=True)
     subprocess.run(["xcrun", "simctl", "bootstatus", device["udid"], "-b"], check=True)
     log = root / "build/simulator-build.log"
-    derived = Path.home() / "Library/Developer/Xcode/DerivedData/CareCircleLocal"
+    derived = Path.home() / "Library/Developer/Xcode/DerivedData/EncircleLocal"
     log.parent.mkdir(exist_ok=True)
-    print("Building Care Circle…", flush=True)
+    print("Building Encircle…", flush=True)
     with log.open("w") as output:
-        result = subprocess.run(["xcodebuild", "-project", str(root / "CareCircle.xcodeproj"),
-                                 "-scheme", "CareCircle", "-configuration", "Debug", "-sdk", "iphonesimulator",
+        result = subprocess.run(["xcodebuild", "-project", str(root / "Encircle.xcodeproj"),
+                                 "-scheme", "Encircle", "-configuration", "Debug", "-sdk", "iphonesimulator",
                                  "-derivedDataPath", str(derived), "CODE_SIGN_IDENTITY=-", "build"],
                                 stdout=output, stderr=subprocess.STDOUT)
     if result.returncode:
         raise SystemExit(f"Build failed. Check {log}.")
-    app = derived / "Build/Products/Debug-iphonesimulator/CareCircle.app"
+    app = derived / "Build/Products/Debug-iphonesimulator/Encircle.app"
     subprocess.run(["xcrun", "simctl", "install", device["udid"], str(app)], check=True)
     # These values go directly to the simulator process environment, never command-line arguments or logs.
     launch_environment = os.environ.copy()
-    launch_environment["SIMCTL_CHILD_CARECIRCLE_SERVER_ADDRESS"] = address
-    launch_environment["SIMCTL_CHILD_CARECIRCLE_CONNECTION_TOKEN"] = token
+    launch_environment["SIMCTL_CHILD_ENCIRCLE_SERVER_ADDRESS"] = address
+    launch_environment["SIMCTL_CHILD_ENCIRCLE_CONNECTION_TOKEN"] = token
     subprocess.run(["xcrun", "simctl", "launch", "--terminate-running-process", device["udid"],
                     "com.harryhutchins.carecircle"], env=launch_environment, check=True)
-    print(f"Care Circle is running on {device['name']}, connected to the local Oracle bridge.")
+    print(f"Encircle is running on {device['name']}, connected to the local Oracle bridge.")
 
 
 if __name__ == "__main__":

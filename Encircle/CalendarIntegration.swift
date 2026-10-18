@@ -163,7 +163,7 @@ final class CareCalendarStore: ObservableObject {
     }
 
     private func fetchFeed() async throws {
-        let api = CareCircleAPI(address: UserDefaults.standard.string(forKey: "careCircleServerAddress") ?? "", token: ConnectionToken.read())
+        let api = EncircleAPI(address: UserDefaults.standard.string(forKey: "encircleServerAddress") ?? "", token: ConnectionToken.read())
         let data = try await api.request("appointments")
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         let feed = try decoder.decode(ScheduleFeed.self, from: data)
@@ -188,7 +188,7 @@ final class CareCalendarStore: ObservableObject {
             let name = recipient.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { throw ConnectionError.message("Enter the name of the person you care for first.") }
             let granted = hasAccess ? true : try await events.requestFullAccessToEvents()
-            guard granted else { throw ConnectionError.message("Allow full Calendar access in iPhone Settings to add and update your Care Circle appointments.") }
+            guard granted else { throw ConnectionError.message("Allow full Calendar access in iPhone Settings to add and update your Encircle appointments.") }
             updateCalendars()
             let chosen = calendarID.isEmpty ? events.defaultCalendarForNewEvents?.calendarIdentifier : calendarID
             guard let chosen, writableCalendars.contains(where: { $0.calendarIdentifier == chosen }) else {
@@ -235,7 +235,7 @@ final class CareCalendarStore: ObservableObject {
 
     private func marker(for appointment: ScheduledAppointment) -> URL {
         var components = URLComponents()
-        components.scheme = "carecircle"; components.host = "appointment"
+        components.scheme = "encircle"; components.host = "appointment"
         components.path = "/" + (preferences.patientID ?? "") + "/" + appointment.id
         return components.url!
     }
@@ -248,23 +248,28 @@ final class CareCalendarStore: ObservableObject {
         for appointment in appointments {
             guard appointment.status == "booked" else { continue }
             let marker = marker(for: appointment)
+            func matchesMarker(_ url: URL?) -> Bool {
+                guard let url else { return false }
+                return ["encircle", "carecircle"].contains(url.scheme ?? "") && url.host == marker.host && url.path == marker.path
+            }
             let existing = preferences.eventIDs[appointment.id].flatMap { events.event(withIdentifier: $0) }
             let event: EKEvent
-            if let existing, existing.url == marker { event = existing }
+            if let existing, matchesMarker(existing.url) { event = existing }
             else {
                 // EventKit identifiers can change after account sync. Search only our URL marker.
                 let predicate = events.predicateForEvents(withStart: appointment.start.addingTimeInterval(-366 * 86400), end: appointment.end.addingTimeInterval(366 * 86400), calendars: [calendar])
-                event = events.events(matching: predicate).first { $0.url == marker } ?? EKEvent(eventStore: events)
+                event = events.events(matching: predicate).first { matchesMarker($0.url) } ?? EKEvent(eventStore: events)
             }
             event.calendar = calendar
             event.title = preferences.recipient + " — Appointment" + (appointment.isTestData ? " (Demo)" : "")
             event.startDate = appointment.start; event.endDate = appointment.end
             event.timeZone = TimeZone(identifier: appointment.timeZone)
             event.url = marker
-            let begin = "[Care Circle]", end = "[/Care Circle]"
+            let begin = "[Encircle]", end = "[/Encircle]"
             let block = begin + "\n" + transportNotes(for: appointment) + "\n" + end
             let previous = event.notes ?? ""
-            if let first = previous.range(of: begin), let last = previous.range(of: end, range: first.upperBound..<previous.endIndex) {
+            let tags = previous.contains(begin) ? (begin, end) : ("[Care Circle]", "[/Care Circle]")
+            if let first = previous.range(of: tags.0), let last = previous.range(of: tags.1, range: first.upperBound..<previous.endIndex) {
                 event.notes = String(previous[..<first.lowerBound]) + block + String(previous[last.upperBound...])
             } else { event.notes = previous.isEmpty ? block : previous + "\n\n" + block }
             try events.save(event, span: .thisEvent, commit: true)
@@ -272,7 +277,7 @@ final class CareCalendarStore: ObservableObject {
             try persist()
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--test-calendar-sync") {
-                precondition(events.events(matching: events.predicateForEvents(withStart: appointment.start.addingTimeInterval(-1), end: appointment.end.addingTimeInterval(1), calendars: [calendar])).filter { $0.url == marker }.count == 1)
+                precondition(events.events(matching: events.predicateForEvents(withStart: appointment.start.addingTimeInterval(-1), end: appointment.end.addingTimeInterval(1), calendars: [calendar])).filter { matchesMarker($0.url) }.count == 1)
                 let stored = events.event(withIdentifier: event.eventIdentifier)
                 precondition(stored?.notes?.contains(transportNotes(for: appointment)) == true)
                 precondition(stored?.startDate == appointment.start && stored?.endDate == appointment.end)
@@ -319,7 +324,7 @@ struct CalendarIntegrationView: View {
                     Button("Pause calendar updates") { store.disconnect() }.disabled(store.busy)
                 }
             } header: { Text("Apple Calendar") } footer: {
-                Text("Allow Calendar access once to add appointments and keep transport notes updated without duplicates. Choose an iCloud calendar to see events on your other Apple devices. Event titles and notes follow that calendar’s sharing settings. Your other calendar events are not sent to Care Circle’s server.")
+                Text("Allow Calendar access once to add appointments and keep transport notes updated without duplicates. Choose an iCloud calendar to see events on your other Apple devices. Event titles and notes follow that calendar’s sharing settings. Your other calendar events are not sent to Encircle’s server.")
             }
             if store.busy { ProgressView("Updating appointments…") }
             if let error = store.error { Text(error).foregroundStyle(.red) }
@@ -344,7 +349,7 @@ struct CalendarIntegrationView: View {
                     }.accessibilityIdentifier("scheduled-" + appointment.id)
                 }
             } header: { Text(store.isDemo ? "Demo appointments · Chicago time" : "Upcoming appointments") } footer: {
-                Text("Cloud confirmations are tracked separately for each direction. Local notes stay on this phone and in your selected calendar. Calendar notes refresh when Care Circle is open; they don’t refresh while the app is closed.")
+                Text("Cloud confirmations are tracked separately for each direction. Local notes stay on this phone and in your selected calendar. Calendar notes refresh when Encircle is open; they don’t refresh while the app is closed.")
             }
         }
         .scrollContentBackground(.hidden)
@@ -431,8 +436,8 @@ private struct CareCoordinatorView: View {
     @State private var error: String?
     @State private var busy = false
     private let cream = Color(red: 0.89, green: 0.85, blue: 0.74)
-    private var api: CareCircleAPI {
-        CareCircleAPI(address: UserDefaults.standard.string(forKey: "careCircleServerAddress") ?? "", token: ConnectionToken.read())
+    private var api: EncircleAPI {
+        EncircleAPI(address: UserDefaults.standard.string(forKey: "encircleServerAddress") ?? "", token: ConnectionToken.read())
     }
     var body: some View {
         Form {
@@ -557,8 +562,8 @@ struct SMSConsentView: View {
     @State private var status: String?
     @FocusState private var editing: String?
     private let cream = Color(red: 0.89, green: 0.85, blue: 0.74)
-    private var api: CareCircleAPI {
-        CareCircleAPI(address: UserDefaults.standard.string(forKey: "careCircleServerAddress") ?? "", token: ConnectionToken.read())
+    private var api: EncircleAPI {
+        EncircleAPI(address: UserDefaults.standard.string(forKey: "encircleServerAddress") ?? "", token: ConnectionToken.read())
     }
     var body: some View {
         Form {
@@ -603,7 +608,7 @@ struct SMSConsentView: View {
                     Section {
                         Text("SMS consent is saved for the number ending in " + String(receipt.phone.suffix(4)) + ".")
                         if info.optedOutBySMS {
-                            Text("You previously texted STOP. To resume texts, send START to the Care Circle sender. Saving this form does not clear an SMS opt-out.")
+                            Text("You previously texted STOP. To resume texts, send START to the Encircle sender. Saving this form does not clear an SMS opt-out.")
                         }
                         Button("Withdraw SMS consent", role: .destructive) { Task { await submit(action: "withdraw") } }.disabled(busy)
                     } footer: {

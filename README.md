@@ -1,4 +1,4 @@
-# Care Circle
+# Encircle
 
 The Oracle backend also provides an authenticated [mock scheduling feed](Docs/MockAppointments.md) with three synthetic appointment slots for upcoming calendar and messaging integration work.
 
@@ -8,8 +8,8 @@ A native SwiftUI iPhone and iPad starter app based on the supplied sketch.
 
 ## Open and run
 
-1. Open `CareCircle.xcodeproj` in Xcode.
-2. Select the **CareCircle** scheme and an iPhone simulator.
+1. Open `Encircle.xcodeproj` in Xcode.
+2. Select the **Encircle** scheme and an iPhone simulator.
 3. Press **Run** (Command-R).
 
 Verified with Xcode 27.1; targets iOS 17 or later. To run on a physical iPhone, choose your team under **Signing & Capabilities**, then select your device. A simulator does not require a development team.
@@ -49,3 +49,5 @@ The live UI integration test `testElevenLabsRecordingToolOpensRecorder` requires
 Oracle now hosts a persistent transport coordinator for the synthetic appointment feed. Open the menu → Apple Calendar & transport → Care coordinator to see requests, separate outbound/return coverage, and messages. In test mode, simulation controls never send SMS. The approved own-number demo can automatically start texting after Twilio approves the toll-free sender and verifies the trial recipient; it is restricted to the owner’s number with a 20-message daily limit. Calendar notes refresh when the app runs. See [workflow, setup, verification, and limits](Docs/CareCoordinator.md).
 
 SMS signup is available in **Menu → Apple Calendar & transport → SMS consent & preferences**. The form starts unchecked and saves a private consent receipt; withdrawing suppresses future queued messages. [Public signup documentation](Docs/SMSConsent.md), [SMS terms](Docs/SMSTerms.md), and [privacy notice](Docs/SMSPrivacy.md) describe the current single-owner prototype. Saving consent does not bypass Twilio approval or expand the recipient allowlist.
+
+The Encircle rename updates existing developer installations in place. Saved visits, private connection settings, calendar events, and cloud coordinator data are preserved.

@@ -32,7 +32,7 @@ The request queue is written before calling Twilio. A timeout or interrupted sen
 
 Open the menu → Apple Calendar & transport → Care coordinator. Test mode shows simulated messages and explicit simulation controls; these never send texts. The app shows separate direction statuses and confirmed names. Local manual notes remain separate from cloud SMS confirmations.
 
-Calendar notes refresh on foreground/open and while the coordinator screen is visible. The cloud coordinator keeps running while the phone is closed, but **Apple Calendar notes do not update until Care Circle runs again**. Push/background calendar delivery, iMessage automation, geofencing/doctor-office arrival prompts, and escalation by voice call are not implemented. iMessage is not used by the SMS coordinator.
+Calendar notes refresh on foreground/open and while the coordinator screen is visible. The cloud coordinator keeps running while the phone is closed, but **Apple Calendar notes do not update until Encircle runs again**. Push/background calendar delivery, iMessage automation, geofencing/doctor-office arrival prompts, and escalation by voice call are not implemented. iMessage is not used by the SMS coordinator.
 
 ## API
 

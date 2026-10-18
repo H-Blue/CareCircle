@@ -9,7 +9,7 @@ private enum CareStyle {
 }
 
 struct ContentView: View {
-    @StateObject private var voice = CareCircleVoiceSession()
+    @StateObject private var voice = EncircleVoiceSession()
     @StateObject private var calendar = CareCalendarStore()
     @Environment(\.scenePhase) private var scenePhase
     @State private var showMenu = false
@@ -35,7 +35,7 @@ struct ContentView: View {
         case .connecting: return "Connecting…"
         case .listening: return voice.isMuted ? "Microphone paused" : "Listening"
         case .thinking: return "Thinking…"
-        case .speaking: return "Care Circle is speaking"
+        case .speaking: return "Encircle is speaking"
         case .failed: return "Voice paused"
         }
     }
@@ -88,7 +88,7 @@ struct ContentView: View {
             .presentationBackground(CareStyle.cream)
         }
         .onOpenURL { url in
-            guard url.scheme == "carecircle", url.host == "appointment", voice.activeVisit == nil else { return }
+            guard ["encircle", "carecircle"].contains(url.scheme ?? ""), url.host == "appointment", voice.activeVisit == nil else { return }
             voice.end()
             showCalendarConnection = true
         }
@@ -101,7 +101,7 @@ struct ContentView: View {
             // UI checks can exercise local recording without spending a conversation session.
             if ProcessInfo.processInfo.arguments.contains("--test-record-visit") { voice.startVisit() }
             if ProcessInfo.processInfo.arguments.contains("--test-summary-home") {
-                UserDefaults.standard.removeObject(forKey: "careCircleDismissedHomeBrief")
+                UserDefaults.standard.removeObject(forKey: "encircleDismissedHomeBrief")
                 let sample = SavedVisit(id: UUID(uuidString: "5B17C687-29EF-4B37-B6C6-113417B75583")!, date: .now,
                     lines: [VisitLine(text: "Clinician: Your X-ray shows no fracture. Please schedule a follow-up appointment in two weeks.", elapsed: 0)],
                     duration: 10, complete: true)
@@ -179,7 +179,7 @@ struct ContentView: View {
                     .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(voice.phase == .listening ? (voice.isMuted ? "Resume microphone" : "Pause microphone") : "Speak to Care Circle")
+                .accessibilityLabel(voice.phase == .listening ? (voice.isMuted ? "Resume microphone" : "Pause microphone") : "Speak to Encircle")
                 .accessibilityHint("Starts ElevenLabs voice. Speak naturally, or tap while listening to pause your microphone.")
                 .position(x: geometry.size.width / 2, y: geometry.size.height * (voice.isActive ? 0.59 : 0.68))
                 .animation(reduceMotion ? nil : .spring(response: 0.20, dampingFraction: 0.75), value: voice.bass)
@@ -220,7 +220,7 @@ private struct HomeVisitBrief: View {
     @ObservedObject var store: VisitStore
     let greetingSize: CGFloat
     let openVisit: (SavedVisit) -> Void
-    @AppStorage("careCircleDismissedHomeBrief") private var dismissedID = ""
+    @AppStorage("encircleDismissedHomeBrief") private var dismissedID = ""
     private var latest: SavedVisit? { store.visits.first { $0.archived != true } }
 
     var body: some View {
@@ -439,7 +439,7 @@ private struct ArchivedAppointments: View {
 }
 
 private struct VisitRecordingView: View {
-    @ObservedObject var voice: CareCircleVoiceSession
+    @ObservedObject var voice: EncircleVoiceSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -493,7 +493,7 @@ private struct VisitRecordingView: View {
             .frame(maxWidth: .infinity)
             Text("Tap to finish and save")
                 .font(.footnote).frame(maxWidth: .infinity)
-            Text("Make sure everyone agrees to being recorded. Keep Care Circle open while recording. Speakers aren’t identified automatically.")
+            Text("Make sure everyone agrees to being recorded. Keep Encircle open while recording. Speakers aren’t identified automatically.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(28).foregroundStyle(CareStyle.ink)

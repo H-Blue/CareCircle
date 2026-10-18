@@ -36,7 +36,7 @@ class WorkflowTests(unittest.TestCase):
         self.config = dict(mode='test', patient_name='Demo patient', leader=dict(name='Leader',phone=PHONE,consent=True),
                            contacts=[dict(id='ted',name='Ted',phone=PHONE,consent=True)],daily_limit=20,allow_demo_sms=True)
         self.c.configure(self.config)
-        self.c.save_sms_consent(dict(action='accept', name='Test owner', phone=PHONE, accepted=True, version='2026-10-18-v1'))
+        self.c.save_sms_consent(dict(action='accept', name='Test owner', phone=PHONE, accepted=True, version='2026-10-18-encircle-v2'))
         self.a = json.loads((Path(__file__).parent/'fixtures/appointments.json').read_text())['appointments'][0]
         self.c.upsert(self.a); self.c.tick()
 
@@ -176,7 +176,7 @@ class WorkflowTests(unittest.TestCase):
 
 class WebhookTests(unittest.TestCase):
     def setUp(self):
-        self.env=patch.dict('os.environ',dict(TWILIO_ACCOUNT_SID='AC-unit',TWILIO_AUTH_TOKEN='unit-secret',TWILIO_FROM_NUMBER=OTHER,CARECIRCLE_PUBLIC_URL='https://care.example/v1'))
+        self.env=patch.dict('os.environ',dict(TWILIO_ACCOUNT_SID='AC-unit',TWILIO_AUTH_TOKEN='unit-secret',TWILIO_FROM_NUMBER=OTHER,ENCIRCLE_PUBLIC_URL='https://care.example/v1'))
         self.env.start();self.c=Coordinator(MemoryState())
         self.http=ThreadingHTTPServer(('127.0.0.1',0),server.make_handler(Mock(),'app-token',coordinator=self.c))
         self.thread=threading.Thread(target=self.http.serve_forever,daemon=True);self.thread.start()
@@ -217,7 +217,7 @@ class DemoApprovalTests(unittest.TestCase):
 
     def test_auto_activation_needs_approval_and_only_authorized_demo(self):
         with patch.dict('os.environ',dict(TWILIO_ACCOUNT_SID='AC-unit',TWILIO_AUTH_TOKEN='unit-secret',TWILIO_FROM_NUMBER=OTHER,
-                        CARECIRCLE_PUBLIC_URL='https://care.example/v1',TWILIO_AUTO_ENABLE_DEMO='1',TWILIO_ALLOWED_NUMBERS=PHONE)):
+                        ENCIRCLE_PUBLIC_URL='https://care.example/v1',TWILIO_AUTO_ENABLE_DEMO='1',TWILIO_ALLOWED_NUMBERS=PHONE)):
             sender=TwilioSender();c=Coordinator(MemoryState(),sender)
             config=dict(mode='test',patient_name='Demo',leader=dict(name='Leader',phone=PHONE,consent=True),
                         contacts=[dict(name='Ted',phone=PHONE,consent=True)],allow_demo_sms=True)
@@ -226,7 +226,7 @@ class DemoApprovalTests(unittest.TestCase):
             self.assertEqual(c.snapshot()['mode'],'test')
             with patch.object(sender,'approval_status',return_value=True):c.activate_authorized_demo()
             self.assertEqual(c.snapshot()['mode'],'test')
-            c.save_sms_consent(dict(action='accept',name='Test owner',phone=PHONE,accepted=True,version='2026-10-18-v1'))
+            c.save_sms_consent(dict(action='accept',name='Test owner',phone=PHONE,accepted=True,version='2026-10-18-encircle-v2'))
             with patch.object(sender,'approval_status',return_value=True):c.activate_authorized_demo()
             self.assertEqual(c.snapshot()['mode'],'live')
             config['mode']='paused';c.configure(config)

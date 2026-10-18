@@ -4,7 +4,7 @@ This is a **personal development bridge**, not a public production service. The 
 
 ## Account setup
 
-Use an OCI identity authorized to call Generative AI in the selected compartment. Prefer a dedicated service identity with only `use generative-ai-chat` in the Care Circle compartment. Do not grant tenancy administrator access to a deployed backend.
+Use an OCI identity authorized to call Generative AI in the selected compartment. Prefer a dedicated service identity with only `use generative-ai-chat` in the Encircle compartment. Do not grant tenancy administrator access to a deployed backend.
 
 Register an API signing public key with that identity and save its private key and OCI config **outside this project**, normally under `~/.oci/`. Restrict the private key to your user (`chmod 600`). Oracle Console > User settings > Tokens and keys > API keys provides the configuration details. Creating this credential requires the account owner's approval.
 
@@ -12,7 +12,7 @@ In Generative AI > Chat, select a compartment and model. **View code** shows the
 
 ## Run locally
 
-On this Mac, the approved Oracle signing key and profile are stored in `~/.oci/carecircle/` with owner-only permissions. Local account values and the app connection token are in the ignored, owner-only `Server/.env`. Live inference with Cohere Command A in Chicago was verified during setup. These machine-specific files are deliberately absent from GitHub.
+On this Mac, the approved Oracle signing key and profile are stored in `~/.oci/encircle/` with owner-only permissions. Local account values and the app connection token are in the ignored, owner-only `Server/.env`. Live inference with Cohere Command A in Chicago was verified during setup. These machine-specific files are deliberately absent from GitHub.
 
 Once the environment is configured, build and connect the simulator in one command:
 
@@ -62,8 +62,8 @@ Oracle references: [SDK configuration](https://docs.oracle.com/en-us/iaas/Conten
 
 ## ElevenLabs conversation sessions
 
-For the live voice agent, add a restricted `ELEVENLABS_API_KEY` to the private `Server/.env` and run `Server/.venv/bin/python Server/configure_elevenlabs.py`. This creates/updates a private Care Circle agent and saves `ELEVENLABS_AGENT_ID` to the same ignored file. The setup utility uses the standard library; the production backend uses pinned OCI and Twilio SDKs. The key needs ElevenAgents management and voice-read access for setup. The current key was capped at 10,000 credits per refresh period by the account owner’s approval.
+For the live voice agent, add a restricted `ELEVENLABS_API_KEY` to the private `Server/.env` and run `Server/.venv/bin/python Server/configure_elevenlabs.py`. This creates/updates a private Encircle agent and saves `ELEVENLABS_AGENT_ID` to the same ignored file. The setup utility uses the standard library; the production backend uses pinned OCI and Twilio SDKs. The key needs ElevenAgents management and voice-read access for setup. The current key was capped at 10,000 credits per refresh period by the account owner’s approval.
 
-Deploy after setup so the VM receives the private key and agent ID. `POST /voice/session` requires the existing Care Circle bearer token and returns only a temporary ElevenLabs conversation token. The iPhone SDK uses WebRTC for live audio; Oracle credentials and the ElevenLabs permanent key never reach the phone. Keep provider debug logging disabled. Missing provider setup returns an explicit error; it does not silently fall back to Oracle TTS.
+Deploy after setup so the VM receives the private key and agent ID. `POST /voice/session` requires the existing Encircle bearer token and returns only a temporary ElevenLabs conversation token. The iPhone SDK uses WebRTC for live audio; Oracle credentials and the ElevenLabs permanent key never reach the phone. Keep provider debug logging disabled. Missing provider setup returns an explicit error; it does not silently fall back to Oracle TTS.
 
 Visit transcription still uses `/speech/session` and Oracle. Saved-visit summaries still use `/chat`. Legacy `/speech/synthesize` remains for compatibility with earlier developer builds; the updated app no longer calls it for ordinary conversations.

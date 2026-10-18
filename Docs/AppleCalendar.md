@@ -1,8 +1,8 @@
 # Apple Calendar and transport
 
-Care Circle uses native EventKit on iOS 17 and later. Open the top-left menu, tap the calendar icon, enter the name of the person you care for, and tap **Connect Apple Calendar**. Allow access to all calendar events when iOS asks. Initial connection uses the phone’s default writable calendar; the calendar picker lets you choose a different writable calendar and move Care Circle’s events there with **Save & sync calendar**. Choose an iCloud calendar for Apple’s normal cross-device synchronization.
+Encircle uses native EventKit on iOS 17 and later. Open the top-left menu, tap the calendar icon, enter the name of the person you care for, and tap **Connect Apple Calendar**. Allow access to all calendar events when iOS asks. Initial connection uses the phone’s default writable calendar; the calendar picker lets you choose a different writable calendar and move Encircle’s events there with **Save & sync calendar**. Choose an iCloud calendar for Apple’s normal cross-device synchronization.
 
-Installing the app alone cannot grant calendar permission. No Apple account password, CalDAV credential, or extra cloud service is needed. Full Calendar access is used to find and update existing Care Circle events without repeatedly adding copies. Unrelated events are never uploaded to the backend or edited.
+Installing the app alone cannot grant calendar permission. No Apple account password, CalDAV credential, or extra cloud service is needed. Full Calendar access is used to find and update existing Encircle events without repeatedly adding copies. Unrelated events are never uploaded to the backend or edited.
 
 The app reads the authenticated Oracle `/appointments` feed. The current three records are explicitly synthetic: November 3, 2026, 5–7 PM; November 13, 2–7 PM; December 2, 8 AM–noon, all America/Chicago. Calendar times are saved as absolute instants with the source timezone, and titles include `(Demo)` so they aren’t mistaken for a real hospital schedule.
 
@@ -11,16 +11,16 @@ Tap an appointment in **Calendar & transport** to enter comma-separated names un
 Example event notes:
 
 ```text
-[Care Circle]
+[Encircle]
 Care recipient: Demo Care Recipient
 Transport: Assigned
 Taking: Alex
 Not taking: Jordan
 Demo appointment — synthetic scheduling data.
-[/Care Circle]
+[/Encircle]
 ```
 
-Care Circle owns only that notes block; text added outside it is retained during updates. Stable appointment URL markers and locally stored EventKit identifiers let it update its own events. An EventKit identifier lookup is verified against the marker before an event is modified. A bounded marker search handles identifiers that change after calendar account synchronization. Calendar links open the app’s calendar connection screen.
+Encircle owns only that notes block; text added outside it is retained during updates. Stable appointment URL markers and locally stored EventKit identifiers let it update its own events. An EventKit identifier lookup is verified against the marker before an event is modified. A bounded marker search handles identifiers that change after calendar account synchronization. Calendar links open the app’s calendar connection screen.
 
 After connection, sync runs when the app opens or returns to the foreground, when **Save & sync calendar** is tapped, and when transport details are saved. It does not run continuously while iOS has suspended the app. This prototype handles the booked appointments in the demo feed; cancellation/deletion reconciliation and real hospital scheduling adapters are not implemented yet. **Pause calendar updates** stops future automatic updates and keeps existing calendar events.
 
@@ -32,4 +32,4 @@ Validation includes a real EventKit integration test on the iPhone simulator: cl
 
 ## Cloud transport confirmations
 
-The [Oracle coordinator](CareCoordinator.md) now adds separate outbound and return coverage to the appointment feed. Calendar notes include confirmed driver names, declines, and waiting/review statuses. Manual names remain clearly labeled local notes, separate from SMS confirmations. Synthetic appointment notes explicitly allow simulated confirmations. Cloud coordination runs while the app is closed; Apple Calendar notes refresh only when Care Circle runs, including polling while the coordinator screen is visible.
+The [Oracle coordinator](CareCoordinator.md) now adds separate outbound and return coverage to the appointment feed. Calendar notes include confirmed driver names, declines, and waiting/review statuses. Manual names remain clearly labeled local notes, separate from SMS confirmations. Synthetic appointment notes explicitly allow simulated confirmations. Cloud coordination runs while the app is closed; Apple Calendar notes refresh only when Encircle runs, including polling while the coordinator screen is visible.

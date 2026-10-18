@@ -11,7 +11,7 @@ enum ConnectionError: LocalizedError {
 enum ConnectionToken {
     private static var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: "com.harryhutchins.carecircle.connection",
+         kSecAttrService as String: "com.harryhutchins.encircle.connection",
          kSecAttrAccount as String: "backend-token"]
     }
 
@@ -20,9 +20,14 @@ enum ConnectionToken {
         request[kSecReturnData as String] = true
         request[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
+        if SecItemCopyMatching(request as CFDictionary, &item) == errSecSuccess,
+           let data = item as? Data { return String(data: data, encoding: .utf8) ?? "" }
+        // The old service remains readable for installations upgrading in place.
+        request[kSecAttrService as String] = "com.harryhutchins.carecircle.connection"
         guard SecItemCopyMatching(request as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data else { return "" }
-        return String(data: data, encoding: .utf8) ?? ""
+              let data = item as? Data, let value = String(data: data, encoding: .utf8) else { return "" }
+        try? save(value)
+        return value
     }
 
     static func save(_ value: String) throws {
@@ -48,7 +53,7 @@ struct ChatMessage: Identifiable, Codable {
     enum CodingKeys: String, CodingKey { case role, content }
 }
 
-struct CareCircleAPI {
+struct EncircleAPI {
     let address: String
     let token: String
 
@@ -57,7 +62,7 @@ struct CareCircleAPI {
               let host = url.host, !host.isEmpty,
               url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
               !url.path.contains("..") else {
-            throw ConnectionError.message("Enter your Care Circle server address, such as https://care.example.com.")
+            throw ConnectionError.message("Enter your Encircle server address, such as https://care.example.com.")
         }
         if url.scheme == "https" { return url }
         #if targetEnvironment(simulator)
@@ -93,7 +98,7 @@ struct CareCircleAPI {
         guard (200..<300).contains(response.statusCode) else {
             struct Failure: Decodable { let error: String }
             let failure = try? JSONDecoder().decode(Failure.self, from: data)
-            throw ConnectionError.message(failure?.error ?? "Couldn’t reach Care Circle. Please try again.")
+            throw ConnectionError.message(failure?.error ?? "Couldn’t reach Encircle. Please try again.")
         }
         return data
     }
@@ -110,7 +115,7 @@ struct CareCircleAPI {
 }
 
 struct ConnectionSettingsView: View {
-    @AppStorage("careCircleServerAddress") private var address = ""
+    @AppStorage("encircleServerAddress") private var address = ""
     @State private var draftAddress = ""
     @State private var token = ""
     @State private var status: String?
@@ -120,18 +125,18 @@ struct ConnectionSettingsView: View {
     var body: some View {
         Form {
             Section {
-                TextField("https://your-care-circle-server", text: $draftAddress)
+                TextField("https://your-encircle-server", text: $draftAddress)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
-                    .accessibilityLabel("Care Circle server address")
+                    .accessibilityLabel("Encircle server address")
                 SecureField("Connection token", text: $token)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             } header: {
-                Text("Care Circle connection")
+                Text("Encircle connection")
             } footer: {
-                Text("Use the connection token for your Care Circle server. Your Oracle account credentials stay on the server.")
+                Text("Use the connection token for your Encircle server. Your Oracle account credentials stay on the server.")
             }
             Section {
                 Button(checking ? "Checking…" : "Save and check connection") {
@@ -162,13 +167,13 @@ struct ConnectionSettingsView: View {
         defer { checking = false }
         do {
             let trimmed = draftAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-            _ = try CareCircleAPI.validatedURL(trimmed)
+            _ = try EncircleAPI.validatedURL(trimmed)
             guard token.count >= 32 else { throw ConnectionError.message("Enter the full server connection token.") }
             try ConnectionToken.save(token)
             address = trimmed
-            _ = try await CareCircleAPI(address: trimmed, token: token).request("health")
+            _ = try await EncircleAPI(address: trimmed, token: token).request("health")
             try Task.checkCancellation()
-            status = "Connected to your Care Circle server. You can start a conversation."
+            status = "Connected to your Encircle server. You can start a conversation."
         } catch is CancellationError {
         } catch {
             status = error.localizedDescription
@@ -251,7 +256,7 @@ final class VisitStore: ObservableObject {
         summaryTasks[id] = Task {
             defer { summarizing.remove(id); summaryTasks[id] = nil }
             do {
-                let api = CareCircleAPI(address: UserDefaults.standard.string(forKey: "careCircleServerAddress") ?? "", token: ConnectionToken.read())
+                let api = EncircleAPI(address: UserDefaults.standard.string(forKey: "encircleServerAddress") ?? "", token: ConnectionToken.read())
                 var parts: [String] = []
                 var remaining = visit.transcriptText[...]
                 while !remaining.isEmpty {

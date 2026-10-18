@@ -10,7 +10,7 @@ All appointments are in **2026**, in **America/Chicago**. These dates fall in Ce
 | November 13 | 2:00 PM | 7:00 PM |
 | December 2 | 8:00 AM | Noon |
 
-The response includes `schema_version`, `source: carecircle_coordinator` (or `mock_scheduler` when running without coordinator storage), `is_test_data: true`, the synthetic patient ID `demo-patient-001`, and an `appointments` array. Each appointment has a stable ID, generic title, booked status, explicit start/end offsets, timezone, and test-data marker. No medical details, contact details, clinic names or clinician identities are fabricated.
+The response includes `schema_version`, `source: encircle_coordinator` (or `mock_scheduler` when running without coordinator storage), `is_test_data: true`, the synthetic patient ID `demo-patient-001`, and an `appointments` array. Each appointment has a stable ID, generic title, booked status, explicit start/end offsets, timezone, and test-data marker. No medical details, contact details, clinic names or clinician identities are fabricated.
 
 This is a development database in private, versioned Oracle Object Storage. The fixture seeds missing initial appointments once; redeployment does not undo database edits. It is not connected to a real patient system. A later scheduling adapter can return this same shape from an authorized real provider. Do not replace this fixture with real patient data in Git.
 

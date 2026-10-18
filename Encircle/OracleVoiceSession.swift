@@ -8,7 +8,7 @@ import LiveKit
 
 /// Audio route changes and engine setup may block; keep them off the UI thread.
 enum AudioWork {
-    static let queue = DispatchQueue(label: "com.carecircle.audio-control")
+    static let queue = DispatchQueue(label: "com.encircle.audio-control")
 
     static func run(_ operation: @escaping () throws -> Void) async throws {
         try await withCheckedThrowingContinuation { continuation in
@@ -86,7 +86,7 @@ final class MicrophoneCapture: @unchecked Sendable {
 }
 
 @MainActor
-final class CareCircleVoiceSession: NSObject, ObservableObject {
+final class EncircleVoiceSession: NSObject, ObservableObject {
     enum Phase: String {
         case idle, connecting, listening, thinking, speaking, failed
     }
@@ -138,8 +138,8 @@ final class CareCircleVoiceSession: NSObject, ObservableObject {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
     }
 
-    private var api: CareCircleAPI {
-        CareCircleAPI(address: UserDefaults.standard.string(forKey: "careCircleServerAddress") ?? "", token: ConnectionToken.read())
+    private var api: EncircleAPI {
+        EncircleAPI(address: UserDefaults.standard.string(forKey: "encircleServerAddress") ?? "", token: ConnectionToken.read())
     }
 
     func begin() {
@@ -161,7 +161,7 @@ final class CareCircleVoiceSession: NSObject, ObservableObject {
         do {
             let permission = await AVAudioApplication.requestRecordPermission()
             guard generation == turn, !Task.isCancelled else { return }
-            guard permission else { throw ConnectionError.message("Allow microphone access in iPhone Settings to speak with Care Circle.") }
+            guard permission else { throw ConnectionError.message("Allow microphone access in iPhone Settings to speak with Encircle.") }
             struct Session: Decodable { let token: String; let compartmentId: String; let endpoint: String }
             let data = try await api.request("speech/session", post: true)
             let session = try JSONDecoder().decode(Session.self, from: data)
@@ -326,7 +326,7 @@ final class CareCircleVoiceSession: NSObject, ObservableObject {
             guard generation == turn, !Task.isCancelled else { return }
             let permission = await AVAudioApplication.requestRecordPermission()
             guard generation == turn, !Task.isCancelled else { return }
-            guard permission else { throw ConnectionError.message("Allow microphone access in Settings to talk with Care Circle.") }
+            guard permission else { throw ConnectionError.message("Allow microphone access in Settings to talk with Encircle.") }
             struct VoiceSession: Decodable { let token: String }
             let data = try await api.request("voice/session", post: true)
             let session = try JSONDecoder().decode(VoiceSession.self, from: data)
@@ -412,7 +412,7 @@ final class CareCircleVoiceSession: NSObject, ObservableObject {
             let diagnostic = error.localizedDescription
                 .replacingOccurrences(of: #"(?:https?|wss)://[^\s]+"#, with: "[endpoint]", options: .regularExpression)
                 .replacingOccurrences(of: #"[A-Za-z0-9_=-]{32,}"#, with: "[redacted]", options: .regularExpression)
-            UserDefaults.standard.set(String(diagnostic.prefix(400)), forKey: "careCircleVoiceStartupDiagnostic")
+            UserDefaults.standard.set(String(diagnostic.prefix(400)), forKey: "encircleVoiceStartupDiagnostic")
             #endif
             // SDK errors can contain transport details; do not display or log tokens.
             if let connectionError = error as? ConnectionError { fail(connectionError.localizedDescription) }

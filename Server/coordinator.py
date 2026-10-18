@@ -104,7 +104,7 @@ class TwilioSender:
         self.account = os.environ.get("TWILIO_ACCOUNT_SID", "")
         self.token = os.environ.get("TWILIO_AUTH_TOKEN", "")
         self.number = os.environ.get("TWILIO_FROM_NUMBER", "")
-        self.public_url = os.environ.get("CARECIRCLE_PUBLIC_URL", "").rstrip("/")
+        self.public_url = os.environ.get("ENCIRCLE_PUBLIC_URL", "").rstrip("/")
         self.approved = os.environ.get("TWILIO_SMS_APPROVED") == "1"
         self.checked_at = 0
 
@@ -336,7 +336,7 @@ class Coordinator:
                         self._leader(state, record, f"changed-{revision}-{leg}", "An appointment changed. Previous transport confirmations are no longer current; please review the new plan.", now)
                         driver = trip["driver"]
                         if state["circle"].get("leader") and driver["phone"] != state["circle"]["leader"]["phone"]:
-                            prefix = "Care Circle DEMO: " if appointment["is_test_data"] else "Care Circle: "
+                            prefix = "Encircle DEMO: " if appointment["is_test_data"] else "Encircle: "
                             self._job(state, f"changed-driver-{appointment['id']}-{revision}-{leg}", driver["phone"],
                                 prefix + f"The appointment for your previously confirmed {leg} ride has changed or been cancelled. That confirmation is no longer current. Please check with the circle leader. STOP to opt out.", "change", record, now)
             return True
@@ -368,7 +368,7 @@ class Coordinator:
         c = state["circle"]; leader = c.get("leader")
         if not leader or not leader["consent"] or leader["opted_out"] or c["mode"] == "paused": return
         key = f"leader-{record['appointment']['id']}-{record['revision']}-{c['epoch']}-{suffix}"
-        prefix = "Care Circle DEMO: " if record["appointment"]["is_test_data"] else "Care Circle: "
+        prefix = "Encircle DEMO: " if record["appointment"]["is_test_data"] else "Encircle: "
         self._job(state, key, leader["phone"], prefix + message + " Reply STOP to opt out.", "leader", record, now)
 
     @staticmethod
@@ -443,7 +443,7 @@ class Coordinator:
                              "state": "queued", "created_at": now}
                     state["offers"][code] = offer
                     direction = "to the appointment" if leg == "outbound" else "home from the appointment"
-                    prefix = "Care Circle DEMO: " if a["is_test_data"] else "Care Circle: "
+                    prefix = "Encircle DEMO: " if a["is_test_data"] else "Encircle: "
                     message = f"{prefix}Hi {contact['name']}, can you take {c['patient_name']} {direction} on {self._time(record, leg)}? Reply YES {code} or NO {code}. STOP to opt out."
                     self._job(state, key, contact["phone"], message, "request", record, now, code)
                     trip["state"] = "request_queued"
@@ -558,8 +558,8 @@ class Coordinator:
                 record = state["appointments"].get(pending["appointment_id"]) if pending else next(iter(state["appointments"].values()), None) if command == "HELP" else None
                 if record and c["mode"] != "paused":
                     key = "help-" + hashlib.sha256(phone.encode()).hexdigest()[:12] + "-" + str(int(now // 3600))
-                    message = "Care Circle DEMO: To accept a ride, reply YES followed by its request code; to decline, reply NO and the code. Each direction has its own code. STOP to opt out."
-                    if command == "HELP": message = "Care Circle DEMO help: Manage texts in the app's SMS consent & preferences. Ride replies use YES/NO plus the request code. STOP to opt out. Support: github.com/H-Blue/CareCircle/issues (no private information)."
+                    message = "Encircle DEMO: To accept a ride, reply YES followed by its request code; to decline, reply NO and the code. Each direction has its own code. STOP to opt out."
+                    if command == "HELP": message = "Encircle DEMO help: Manage texts in the app's SMS consent & preferences. Ride replies use YES/NO plus the request code. STOP to opt out. Support: github.com/H-Blue/Encircle/issues (no private information)."
                     self._job(state, key, phone, message, "help", record, now)
                 return {"result": "help" if command == "HELP" else "needs_explicit_reply"}
             intent, code = match.groups(); code = code.upper()
@@ -640,7 +640,7 @@ class Coordinator:
 
     def feed(self):
         snapshot = self.snapshot()
-        return {"schema_version": 1, "source": "carecircle_coordinator", "patient_id": "demo-patient-001", "time_zone": "America/Chicago",
+        return {"schema_version": 1, "source": "encircle_coordinator", "patient_id": "demo-patient-001", "time_zone": "America/Chicago",
                 "is_test_data": all(a["is_test_data"] for a in snapshot["appointments"]),
                 "appointments": [{k: v for k, v in a.items() if k in ("id", "title", "status", "start", "end", "time_zone", "is_test_data")} |
                                   {"coordination": a["trips"]} for a in snapshot["appointments"]]}

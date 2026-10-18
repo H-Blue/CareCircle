@@ -5,20 +5,20 @@
 	};
 	objectVersion = 56;
 	objects = {
-C00000000000000000000001 = {isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Local developer connection"; outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/LocalConnection.plist"); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "set -eu\n/usr/bin/python3 - \"$SRCROOT\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\" \"$CONFIGURATION\" <<'PYTHON'\nimport pathlib, plistlib, sys\nroot, output, configuration = sys.argv[1:]\nsource = pathlib.Path(root) / 'CareCircle/LocalConnection.plist'\ntarget = pathlib.Path(output) / 'LocalConnection.plist'\ntarget.parent.mkdir(parents=True, exist_ok=True)\ntarget.write_bytes(source.read_bytes() if configuration == 'Debug' and source.exists() else plistlib.dumps({}))\nPYTHON\n"; };
+C00000000000000000000001 = {isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Local developer connection"; outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/LocalConnection.plist"); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "set -eu\n/usr/bin/python3 - \"$SRCROOT\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\" \"$CONFIGURATION\" <<'PYTHON'\nimport pathlib, plistlib, sys\nroot, output, configuration = sys.argv[1:]\nsource = pathlib.Path(root) / 'Encircle/LocalConnection.plist'\ntarget = pathlib.Path(output) / 'LocalConnection.plist'\ntarget.parent.mkdir(parents=True, exist_ok=True)\ntarget.write_bytes(source.read_bytes() if configuration == 'Debug' and source.exists() else plistlib.dumps({}))\nPYTHON\n"; };
 
 
-        B00000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/CareCircleUITests.swift; sourceTree = "<group>"; };
+        B00000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/EncircleUITests.swift; sourceTree = "<group>"; };
         B00000000000000000000002 = {isa = PBXBuildFile; fileRef = B00000000000000000000001; };
-        B00000000000000000000003 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CareCircleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+        B00000000000000000000003 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EncircleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
         B00000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B00000000000000000000002); runOnlyForDeploymentPostprocessing = 0; };
         B00000000000000000000005 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-        B00000000000000000000006 = {isa = PBXContainerItemProxy; containerPortal = A00000000000000000000041; proxyType = 1; remoteGlobalIDString = A00000000000000000000040; remoteInfo = CareCircle; };
+        B00000000000000000000006 = {isa = PBXContainerItemProxy; containerPortal = A00000000000000000000041; proxyType = 1; remoteGlobalIDString = A00000000000000000000040; remoteInfo = Encircle; };
         B00000000000000000000007 = {isa = PBXTargetDependency; target = A00000000000000000000040; targetProxy = B00000000000000000000006; };
-        B00000000000000000000008 = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; PRODUCT_BUNDLE_IDENTIFIER = com.harryhutchins.carecircle.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; TEST_TARGET_NAME = CareCircle; }; name = Debug; };
-        B00000000000000000000009 = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; PRODUCT_BUNDLE_IDENTIFIER = com.harryhutchins.carecircle.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; TEST_TARGET_NAME = CareCircle; }; name = Release; };
+        B00000000000000000000008 = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; PRODUCT_BUNDLE_IDENTIFIER = com.harryhutchins.encircle.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; TEST_TARGET_NAME = Encircle; }; name = Debug; };
+        B00000000000000000000009 = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; PRODUCT_BUNDLE_IDENTIFIER = com.harryhutchins.encircle.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; TEST_TARGET_NAME = Encircle; }; name = Release; };
         B00000000000000000000010 = {isa = XCConfigurationList; buildConfigurations = (B00000000000000000000008, B00000000000000000000009); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-        B00000000000000000000011 = {isa = PBXNativeTarget; buildConfigurationList = B00000000000000000000010; buildPhases = (B00000000000000000000004, B00000000000000000000005); buildRules = (); dependencies = (B00000000000000000000007); name = CareCircleUITests; productName = CareCircleUITests; productReference = B00000000000000000000003; productType = "com.apple.product-type.bundle.ui-testing"; };
+        B00000000000000000000011 = {isa = PBXNativeTarget; buildConfigurationList = B00000000000000000000010; buildPhases = (B00000000000000000000004, B00000000000000000000005); buildRules = (); dependencies = (B00000000000000000000007); name = EncircleUITests; productName = EncircleUITests; productReference = B00000000000000000000003; productType = "com.apple.product-type.bundle.ui-testing"; };
 
 
 D00000000000000000000001 = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/elevenlabs/elevenlabs-swift-sdk.git"; requirement = {kind = exactVersion; version = 3.4.0; }; };
@@ -29,7 +29,7 @@ D00000000000000000000005 = {isa = XCSwiftPackageProductDependency; package = D00
 D00000000000000000000006 = {isa = PBXBuildFile; productRef = D00000000000000000000005; };
 /* Begin PBXBuildFile section */
         E00000000000000000000001 = {isa = PBXBuildFile; fileRef = E00000000000000000000002; };
-		A00000000000000000000001 /* CareCircleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011 /* CareCircleApp.swift */; };
+		A00000000000000000000001 /* EncircleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011 /* EncircleApp.swift */; };
 		A00000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000012 /* ContentView.swift */; };
 		A00000000000000000000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000013 /* Assets.xcassets */; };
 		A00000000000000000000004 /* AIConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000015 /* AIConnection.swift */; };
@@ -39,10 +39,10 @@ D00000000000000000000006 = {isa = PBXBuildFile; productRef = D000000000000000000
 
 /* Begin PBXFileReference section */
         E00000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarIntegration.swift; sourceTree = "<group>"; };
-		A00000000000000000000011 /* CareCircleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CareCircleApp.swift; sourceTree = "<group>"; };
+		A00000000000000000000011 /* EncircleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncircleApp.swift; sourceTree = "<group>"; };
 		A00000000000000000000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A00000000000000000000013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A00000000000000000000014 /* CareCircle.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CareCircle.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000014 /* Encircle.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Encircle.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00000000000000000000015 /* AIConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIConnection.swift; sourceTree = "<group>"; };
 		A00000000000000000000016 /* OracleVoiceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OracleVoiceSession.swift; sourceTree = "<group>"; };
 		A00000000000000000000017 /* VoiceBands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceBands.swift; sourceTree = "<group>"; };
@@ -63,29 +63,29 @@ D00000000000000000000006 = {isa = PBXBuildFile; productRef = D000000000000000000
 			isa = PBXGroup;
 			children = (
 				B00000000000000000000001,
-				A00000000000000000000021 /* CareCircle */,
+				A00000000000000000000021 /* Encircle */,
 				A00000000000000000000022 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		A00000000000000000000021 /* CareCircle */ = {
+		A00000000000000000000021 /* Encircle */ = {
 			isa = PBXGroup;
 			children = (
 				E00000000000000000000002,
-                A00000000000000000000011 /* CareCircleApp.swift */,
+                A00000000000000000000011 /* EncircleApp.swift */,
 				A00000000000000000000012 /* ContentView.swift */,
 				A00000000000000000000015 /* AIConnection.swift */,
 				A00000000000000000000016 /* OracleVoiceSession.swift */,
 				A00000000000000000000017 /* VoiceBands.swift */,
 				A00000000000000000000013 /* Assets.xcassets */,
 			);
-			path = CareCircle;
+			path = Encircle;
 			sourceTree = "<group>";
 		};
 		A00000000000000000000022 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000000014 /* CareCircle.app */,
+				A00000000000000000000014 /* Encircle.app */,
 				B00000000000000000000003,
 			);
 			name = Products;
@@ -94,9 +94,9 @@ D00000000000000000000006 = {isa = PBXBuildFile; productRef = D000000000000000000
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A00000000000000000000040 /* CareCircle */ = {
+		A00000000000000000000040 /* Encircle */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A00000000000000000000051 /* Build configuration list for PBXNativeTarget "CareCircle" */;
+			buildConfigurationList = A00000000000000000000051 /* Build configuration list for PBXNativeTarget "Encircle" */;
 			buildPhases = (
 				A00000000000000000000030 /* Sources */,
 				A00000000000000000000032 /* Frameworks */,
@@ -107,10 +107,10 @@ D00000000000000000000006 = {isa = PBXBuildFile; productRef = D000000000000000000
 			);
 			dependencies = (
 			);
-			name = CareCircle;
+			name = Encircle;
             packageProductDependencies = (D00000000000000000000002, D00000000000000000000005);
-			productName = CareCircle;
-			productReference = A00000000000000000000014 /* CareCircle.app */;
+			productName = Encircle;
+			productReference = A00000000000000000000014 /* Encircle.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -128,7 +128,7 @@ D00000000000000000000006 = {isa = PBXBuildFile; productRef = D000000000000000000
 					};
 				};
 			};
-			buildConfigurationList = A00000000000000000000050 /* Build configuration list for PBXProject "CareCircle" */;
+			buildConfigurationList = A00000000000000000000050 /* Build configuration list for PBXProject "Encircle" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -143,7 +143,7 @@ D00000000000000000000006 = {isa = PBXBuildFile; productRef = D000000000000000000
 			projectRoot = "";
 			targets = (
 				B00000000000000000000011,
-				A00000000000000000000040 /* CareCircle */,
+				A00000000000000000000040 /* Encircle */,
 			);
 		};
 /* End PBXProject section */
@@ -165,7 +165,7 @@ D00000000000000000000006 = {isa = PBXBuildFile; productRef = D000000000000000000
 			buildActionMask = 2147483647;
 			files = (
 				E00000000000000000000001,
-                A00000000000000000000001 /* CareCircleApp.swift in Sources */,
+                A00000000000000000000001 /* EncircleApp.swift in Sources */,
 				A00000000000000000000002 /* ContentView.swift in Sources */,
 				A00000000000000000000004 /* AIConnection.swift in Sources */,
 				A00000000000000000000005 /* OracleVoiceSession.swift in Sources */,
@@ -219,8 +219,8 @@ D00000000000000000000006 = {isa = PBXBuildFile; productRef = D000000000000000000
 				DEVELOPMENT_TEAM = 9VLNGVF797;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = CareCircle/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Care Circle";
+				INFOPLIST_FILE = Encircle/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Encircle";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -251,8 +251,8 @@ D00000000000000000000006 = {isa = PBXBuildFile; productRef = D000000000000000000
 				DEVELOPMENT_TEAM = 9VLNGVF797;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = CareCircle/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Care Circle";
+				INFOPLIST_FILE = Encircle/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Encircle";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -276,7 +276,7 @@ D00000000000000000000006 = {isa = PBXBuildFile; productRef = D000000000000000000
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A00000000000000000000050 /* Build configuration list for PBXProject "CareCircle" */ = {
+		A00000000000000000000050 /* Build configuration list for PBXProject "Encircle" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A00000000000000000000060 /* Debug */,
@@ -285,7 +285,7 @@ D00000000000000000000006 = {isa = PBXBuildFile; productRef = D000000000000000000
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A00000000000000000000051 /* Build configuration list for PBXNativeTarget "CareCircle" */ = {
+		A00000000000000000000051 /* Build configuration list for PBXNativeTarget "Encircle" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A00000000000000000000062 /* Debug */,

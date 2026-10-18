@@ -1,4 +1,4 @@
-"""Create/update the private Care Circle ElevenLabs agent; credentials stay in .env.
+"""Create/update the private Encircle ElevenLabs agent; credentials stay in .env.
 
 This is a setup utility. It never logs provider credentials or conversation content.
 """
@@ -11,7 +11,7 @@ import urllib.error
 from server import load_environment
 
 ROOT = Path(__file__).resolve().parent
-PROMPT = """You are Care Circle, a calm, warm voice companion for health and everyday life.
+PROMPT = """You are Encircle, a calm, warm voice companion for health and everyday life.
 Speak softly and gently, with a relaxed, reassuring tone and an unhurried pace. Keep your energy low and steady,
 throughout the conversation. Avoid loud emphasis, exaggerated excitement, dramatic delivery, or a presenter voice.
 At connection, stay silent and wait for the user to speak first. Do not open with a greeting or check-in question.
@@ -33,7 +33,7 @@ immediate local emergency care. Do not add a follow-up question after that urgen
 
 def configuration():
     return {
-        "name": "Care Circle",
+        "name": "Encircle",
         "conversation_config": {
             "agent": {"first_message": "", "language": "en",
                 "disable_first_message_interruptions": False,
@@ -82,7 +82,7 @@ def main():
     lines = [line for line in path.read_text().splitlines() if not line.startswith("ELEVENLABS_AGENT_ID=")]
     path.write_text("\n".join(lines) + "\nELEVENLABS_AGENT_ID=" + agent + "\n")
     path.chmod(0o600)
-    print("Private Care Circle agent configured:", agent)
+    print("Private Encircle agent configured:", agent)
     print("Audio recording disabled; transcript retention is one day. Single concurrent conversation; 30 sessions/day.")
 
 
