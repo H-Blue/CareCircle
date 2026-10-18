@@ -43,8 +43,9 @@ def configuration():
                         "expects_response": False, "pre_tool_speech": "off", "execution_mode": "immediate",
                         "parameters": {"type": "object", "properties": {}, "required": []}}]}},
             "asr": {"quality": "high", "provider": "scribe_realtime", "user_input_audio_format": "pcm_16000"},
-            "tts": {"model_id": "eleven_v3_conversational", "voice_id": "SAz9YHcvj6GT2YYXdXww",
-                    "expressive_mode": True, "speed": 0.9, "agent_output_audio_format": "pcm_16000"},
+            # Flash preserves Brady J's professional voice clone; v3 Conversational does not.
+            "tts": {"model_id": "eleven_flash_v2", "voice_id": "feUarJlAD2AMiWax336v",
+                    "expressive_mode": False, "speed": 0.9, "agent_output_audio_format": "pcm_16000"},
             "turn": {"turn_eagerness": "normal", "turn_timeout": 7, "turn_model": "turn_v3"},
             "conversation": {"max_duration_seconds": 1800,
                 "client_events": ["audio", "interruption", "user_transcript", "agent_response", "agent_response_correction", "client_tool_call"]},
