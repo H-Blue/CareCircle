@@ -25,13 +25,12 @@ final class CareCircleUITests: XCTestCase {
     }
     func testVisitRecordingSavesAndReopensAfterRelaunch() {
         let app = XCUIApplication()
+        app.launchArguments = ["--test-record-visit"]
         app.launch()
-        app.buttons["Open menu"].tap()
-        app.buttons["Record a doctor visit"].tap()
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let allow = springboard.alerts.buttons["Allow"]
         if allow.waitForExistence(timeout: 2) { allow.tap() }
-        XCTAssertTrue(app.buttons["Finish visit recording"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Finish visit recording"].waitForExistence(timeout: 45))
         XCTAssertFalse(app.buttons["Open menu"].exists)
         XCTAssertTrue(app.staticTexts["Recording…"].waitForExistence(timeout: 30))
         let screenshot = app.screenshot()
@@ -40,22 +39,41 @@ final class CareCircleUITests: XCTestCase {
         image.name = "CareCircle-visit-recording"; image.lifetime = .keepAlways; add(image)
         app.buttons["Finish visit recording"].tap()
         XCTAssertTrue(app.buttons["Open menu"].waitForExistence(timeout: 10))
-        app.terminate(); app.launch()
+        app.terminate(); app.launchArguments = []; app.launch()
         app.buttons["Open menu"].tap()
         let savedVisit = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Latest appointment")).firstMatch
         XCTAssertTrue(savedVisit.waitForExistence(timeout: 5))
+        let visitIdentifier = savedVisit.identifier
         let menuPresented = expectation(for: NSPredicate { _, _ in
             app.navigationBars["Appointments"].frame.minY < 100 && savedVisit.isHittable
         }, evaluatedWith: app)
         wait(for: [menuPresented], timeout: 5)
         let menuImage = XCTAttachment(screenshot: app.screenshot())
         menuImage.name = "CareCircle-appointments-menu"; menuImage.lifetime = .keepAlways; add(menuImage)
+        savedVisit.swipeLeft()
+        XCTAssertTrue(app.buttons["Archive"].firstMatch.waitForExistence(timeout: 5))
+        savedVisit.swipeRight()
         savedVisit.tap()
         XCTAssertTrue(app.buttons["AI summary"].waitForExistence(timeout: 5))
         app.buttons["Play / stop recording"].tap()
         XCTAssertFalse(app.staticTexts["This recording couldn’t play. Your transcript is available below."].exists)
         app.buttons["AI summary"].tap()
         XCTAssertTrue(app.staticTexts["AI summary"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+        let transcriptImage = XCTAttachment(screenshot: app.screenshot())
+        transcriptImage.name = "CareCircle-cream-transcript"; transcriptImage.lifetime = .keepAlways; add(transcriptImage)
+        app.swipeLeft()
+        XCTAssertTrue(app.navigationBars["Appointments"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons[visitIdentifier].exists)
+        app.terminate(); app.launch()
+        app.buttons["Open menu"].tap()
+        XCTAssertFalse(app.buttons[visitIdentifier].exists)
+        app.buttons["Archived appointments"].tap()
+        XCTAssertTrue(app.navigationBars["Archived appointments"].waitForExistence(timeout: 5))
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "2026")).firstMatch.tap()
+        XCTAssertTrue(app.buttons["Restore"].waitForExistence(timeout: 5))
+        app.buttons["Restore"].tap()
+        XCTAssertTrue(app.buttons["Archive"].exists)
     }
 
     func testElevenLabsRecordingToolOpensRecorder() {

@@ -11,6 +11,7 @@ private enum CareStyle {
 struct ContentView: View {
     @StateObject private var voice = CareCircleVoiceSession()
     @State private var showMenu = false
+    @Namespace private var menuMotion
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .title) private var greetingSize = 32
 
@@ -40,30 +41,50 @@ struct ContentView: View {
             if voice.activeVisit != nil {
                 VisitRecordingView(voice: voice)
             } else {
-                homeScreen
+                ZStack {
+                    CareStyle.cream.ignoresSafeArea()
+                    homeScreen
+                        .opacity(showMenu ? 0 : 1)
+                        .allowsHitTesting(!showMenu)
+                        .accessibilityHidden(showMenu)
+                    if showMenu {
+                        AppointmentMenu(store: voice.visits, motion: menuMotion, close: { setMenu(false) })
+                            .transition(.opacity)
+                    }
+                }
             }
         }
-        .fullScreenCover(isPresented: $showMenu) { MenuSheet(store: voice.visits, startVisit: {
-            showMenu = false
-            voice.startVisit()
-        }) }
         .overlay(alignment: .bottom) {
-            if !voice.isActive, let notice = voice.notice {
+            if !showMenu, !voice.isActive, let notice = voice.notice {
                 Text(notice).font(.footnote).multilineTextAlignment(.center).padding(24)
                     .foregroundStyle(CareStyle.ink.opacity(0.7)).allowsHitTesting(false)
             }
         }
         .onDisappear { voice.end() }
+        #if DEBUG
+        .task {
+            // UI checks can exercise local recording without spending a conversation session.
+            if ProcessInfo.processInfo.arguments.contains("--test-record-visit") { voice.startVisit() }
+        }
+        #endif
+    }
+
+    private func setMenu(_ open: Bool) {
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.65, dampingFraction: 0.88)) {
+            showMenu = open
+        }
     }
 
     private var homeScreen: some View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
-                if !voice.isActive {
-                    Button { showMenu = true } label: {
+                if !voice.isActive && !showMenu {
+                    Button { setMenu(true) } label: {
                         VStack(alignment: .leading, spacing: 9) {
-                            ForEach(0..<3) { _ in
-                                Rectangle().fill(CareStyle.ink.opacity(0.8)).frame(width: 62, height: 1)
+                            ForEach(0..<3) { index in
+                                Rectangle().fill(CareStyle.ink.opacity(0.5))
+                                    .matchedGeometryEffect(id: index, in: menuMotion)
+                                    .frame(width: 62, height: 1)
                             }
                         }
                         .frame(width: 76, height: 52)
@@ -149,91 +170,159 @@ struct ContentView: View {
     }
 }
 
-private struct MenuSheet: View {
+private struct AppointmentMenu: View {
     @ObservedObject var store: VisitStore
-    let startVisit: () -> Void
-    @Environment(\.dismiss) private var dismiss
+    let motion: Namespace.ID
+    let close: () -> Void
+    private var appointments: [SavedVisit] { store.visits.filter { $0.archived != true } }
 
     var body: some View {
         NavigationStack {
-            GeometryReader { geometry in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        if let error = store.storageError {
-                            Text(error).font(.footnote).padding(.bottom, 20)
-                        }
-                        if store.visits.isEmpty {
-                            Text("Latest appointment")
-                                .font(.title2).padding(.bottom, 16)
-                            menuLine
-                            Text("Your recorded appointments will appear here.")
-                                .font(.body).foregroundStyle(CareStyle.ink.opacity(0.65))
-                                .padding(.top, 20)
-                        }
-                        ForEach(Array(store.visits.enumerated()), id: \.element.id) { index, visit in
-                            NavigationLink {
-                                VisitDetailView(store: store, id: visit.id)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    if index == 0 {
-                                        Text("Latest appointment")
-                                            .font(.title2)
-                                    }
-                                    Text(visit.date, format: .dateTime.month(.wide).day().year())
-                                        .font(index == 0 ? .body : .title2)
-                                        .foregroundStyle(CareStyle.ink.opacity(index == 0 ? 0.65 : 1))
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 20)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            menuLine
-                        }
-                        Spacer(minLength: 80)
-                        VStack(alignment: .leading, spacing: 24) {
-                            Button("Record a doctor visit", action: startVisit)
-                            NavigationLink("Saved visits & AI summaries") {
-                                VisitLibraryView(store: store)
-                            }
-                            NavigationLink("AI connection") {
-                                ConnectionSettingsView()
-                            }
-                            .font(.footnote)
-                            .foregroundStyle(CareStyle.ink.opacity(0.65))
-                        }
-                        .font(.body)
-                        .buttonStyle(.plain)
-                        .padding(.vertical, 24)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let error = store.storageError {
+                        Text(error).font(.footnote).padding(.vertical, 12)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-                    .frame(maxWidth: .infinity, minHeight: max(0, geometry.size.height - 48), alignment: .topLeading)
-                    .overlay(Rectangle().strokeBorder(CareStyle.ink.opacity(0.65), lineWidth: 0.75))
-                    .padding(24)
+                    ForEach(Array(appointments.enumerated()), id: \.element.id) { index, visit in
+                        SwipeAppointmentRow(store: store, visit: visit, latest: index == 0)
+                        rule(index)
+                    }
+                    if appointments.isEmpty {
+                        Text("Latest appointment").font(.title2).padding(.vertical, 24)
+                        rule(0)
+                        Text("Your recorded appointments will appear here.")
+                            .foregroundStyle(CareStyle.ink.opacity(0.65)).padding(.vertical, 24)
+                    }
+                    // The three menu strokes become the first three appointment rules.
+                    ForEach(max(appointments.count, 1)..<max(appointments.count, 3), id: \.self) { index in
+                        Color.clear.frame(height: 68).accessibilityHidden(true)
+                        rule(index)
+                    }
                 }
-                .scrollIndicators(.hidden)
+                .padding(.horizontal, 16)
+                .padding(.top, 20)
             }
-            .foregroundStyle(CareStyle.ink)
+            .scrollIndicators(.hidden)
             .background(CareStyle.cream.ignoresSafeArea())
+            .foregroundStyle(CareStyle.ink)
             .navigationTitle("Appointments")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(CareStyle.cream, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
-            .tint(CareStyle.ink)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .tint(CareStyle.ink)
+                ToolbarItemGroup(placement: .topBarLeading) {
+                    NavigationLink { ArchivedAppointments(store: store) } label: {
+                        Image(systemName: "archivebox")
+                    }.accessibilityLabel("Archived appointments")
+                    NavigationLink { ConnectionSettingsView() } label: {
+                        Image(systemName: "gearshape")
+                    }.accessibilityLabel("AI connection")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done", action: close)
+                }
+            }
+            .tint(CareStyle.ink)
+        }
+        .background(CareStyle.cream.ignoresSafeArea())
+    }
+
+    @ViewBuilder private func rule(_ index: Int) -> some View {
+        if index < 3 {
+            Rectangle().fill(CareStyle.ink.opacity(0.5))
+                .matchedGeometryEffect(id: index, in: motion)
+                .frame(height: 1)
+        } else {
+            Rectangle().fill(CareStyle.ink.opacity(0.5)).frame(height: 1)
+        }
+    }
+}
+
+private struct SwipeAppointmentRow: View {
+    @ObservedObject var store: VisitStore
+    let visit: SavedVisit
+    let latest: Bool
+    @State private var offset: CGFloat = 0
+    @State private var openTranscript = false
+    @State private var lastSwipe = Date.distantPast
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            Button {
+                withAnimation { store.setArchived(visit.id, true) }
+            } label: {
+                VStack(spacing: 6) {
+                    Image(systemName: "archivebox")
+                    Text("Archive").font(.caption)
+                }
+                .frame(width: 84, height: 80)
+                .foregroundStyle(CareStyle.burgundy)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHidden(offset == 0)
+            Button {
+                // A horizontal swipe must reveal Archive without also opening the row.
+                guard Date().timeIntervalSince(lastSwipe) > 0.3 else { return }
+                if offset < 0 { withAnimation { offset = 0 } }
+                else { openTranscript = true }
+            } label: {
+                VStack(alignment: .leading, spacing: 10) {
+                    if latest { Text("Latest appointment").font(.title2) }
+                    Text(visit.date, format: .dateTime.month(.wide).day().year())
+                        .font(latest ? .body : .title2)
+                        .foregroundStyle(CareStyle.ink.opacity(latest ? 0.65 : 1))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 24)
+                .padding(.horizontal, 8)
+                .background(CareStyle.cream)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("appointment-" + visit.id.uuidString)
+            .offset(x: offset)
+            .simultaneousGesture(DragGesture(minimumDistance: 20).onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                lastSwipe = .now
+                offset = min(0, max(-84, value.translation.width))
+            }.onEnded { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                lastSwipe = .now
+                withAnimation(.easeOut(duration: 0.2)) { offset = value.translation.width < -35 ? -84 : 0 }
+            })
+            .accessibilityAction(named: "Archive") { store.setArchived(visit.id, true) }
+        }
+        .clipped()
+        .navigationDestination(isPresented: $openTranscript) {
+            VisitDetailView(store: store, id: visit.id)
+        }
+    }
+}
+
+private struct ArchivedAppointments: View {
+    @ObservedObject var store: VisitStore
+    private var archived: [SavedVisit] { store.visits.filter { $0.archived == true } }
+    var body: some View {
+        List {
+            if archived.isEmpty { Text("No archived appointments.").listRowBackground(CareStyle.cream) }
+            ForEach(archived) { visit in
+                NavigationLink {
+                    VisitDetailView(store: store, id: visit.id)
+                } label: {
+                    Text(visit.date, format: .dateTime.month().day().year().hour().minute())
+                }
+                .listRowBackground(CareStyle.cream)
+                .swipeActions {
+                    Button("Restore") { store.setArchived(visit.id, false) }.tint(CareStyle.burgundy)
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(CareStyle.cream.ignoresSafeArea())
+        .navigationTitle("Archived appointments")
+        .toolbarBackground(CareStyle.cream, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
     }
-
-    private var menuLine: some View {
-        Rectangle().fill(CareStyle.ink.opacity(0.5)).frame(height: 0.75)
-    }
-
 }
 
 private struct VisitRecordingView: View {
@@ -342,6 +431,7 @@ private struct VisitDetailView: View {
     @State private var playbackError: String?
     @State private var playbackTask: Task<Void, Never>?
     @State private var showSummary = false
+    @Environment(\.dismiss) private var dismiss
     private var visit: SavedVisit? { store.visits.first { $0.id == id } }
 
     var body: some View {
@@ -356,13 +446,38 @@ private struct VisitDetailView: View {
                     if let issue = visit.transcriptionIssue { Text(issue).font(.callout).foregroundStyle(CareStyle.burgundy) }
                     Text(visit.transcriptText.isEmpty ? "No speech was transcribed. The captured recording is available above." : visit.transcriptText)
                         .font(.title3).lineSpacing(6).textSelection(.enabled)
-                }.padding(24)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(24)
             }
         }
-        .background(CareStyle.cream.ignoresSafeArea()).navigationTitle("Visit transcript")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CareStyle.cream.ignoresSafeArea())
+        .navigationTitle("Visit transcript")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(CareStyle.cream, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .tint(CareStyle.ink)
+        .simultaneousGesture(DragGesture(minimumDistance: 40).onEnded { value in
+            if value.translation.width < -100 && abs(value.translation.width) > abs(value.translation.height) * 1.5,
+               visit?.archived != true {
+                store.setArchived(id, true)
+                if store.visits.first(where: { $0.id == id })?.archived == true { dismiss() }
+            }
+        })
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("AI summary") { showSummary = true }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    let archiving = visit?.archived != true
+                    store.setArchived(id, archiving)
+                    if archiving && store.visits.first(where: { $0.id == id })?.archived == true { dismiss() }
+                } label: {
+                    Image(systemName: visit?.archived == true ? "arrow.uturn.backward" : "archivebox")
+                }
+                .accessibilityLabel(visit?.archived == true ? "Restore" : "Archive")
             }
         }
         .sheet(isPresented: $showSummary) {
@@ -382,7 +497,11 @@ private struct VisitDetailView: View {
                         }
                     }.padding(24)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(CareStyle.cream.ignoresSafeArea())
+                .toolbarBackground(CareStyle.cream, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+                .tint(CareStyle.ink)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showSummary = false } } }
             }
         }

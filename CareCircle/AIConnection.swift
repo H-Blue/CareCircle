@@ -192,6 +192,8 @@ struct SavedVisit: Codable, Identifiable {
     var summary: String?
     var summaryError: String?
     var transcriptionIssue: String?
+    // Optional so recordings saved before archiving was added still decode.
+    var archived: Bool?
     var audioName: String { id.uuidString + ".caf" }
     var transcriptText: String { (lines.map(\.text) + (partial.isEmpty ? [] : [partial])).joined(separator: "\n") }
 }
@@ -217,6 +219,13 @@ final class VisitStore: ObservableObject {
     }
 
     func audioURL(_ visit: SavedVisit) -> URL { folder.appendingPathComponent(visit.audioName) }
+
+    func setArchived(_ id: UUID, _ archived: Bool) {
+        guard var visit = visits.first(where: { $0.id == id }) else { return }
+        visit.archived = archived
+        do { try save(visit) }
+        catch { storageError = "This appointment couldn’t be updated. Please try again." }
+    }
 
     func save(_ visit: SavedVisit) throws {
         let data = try JSONEncoder().encode(visit)
