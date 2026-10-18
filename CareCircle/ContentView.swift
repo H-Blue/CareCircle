@@ -11,6 +11,7 @@ private enum CareStyle {
 struct ContentView: View {
     @StateObject private var voice = CareCircleVoiceSession()
     @State private var showMenu = false
+    @State private var selectedHomeVisit: SavedVisit?
     @Namespace private var menuMotion
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .title) private var greetingSize = 32
@@ -60,11 +61,31 @@ struct ContentView: View {
                     .foregroundStyle(CareStyle.ink.opacity(0.7)).allowsHitTesting(false)
             }
         }
+        .sheet(item: $selectedHomeVisit) { visit in
+            NavigationStack {
+                VisitDetailView(store: voice.visits, id: visit.id)
+                    .safeAreaInset(edge: .bottom) {
+                        Button("Back to home") { selectedHomeVisit = nil }
+                            .foregroundStyle(CareStyle.burgundy)
+                            .frame(maxWidth: .infinity).padding(20)
+                            .background(CareStyle.cream)
+                    }
+            }
+            .presentationBackground(CareStyle.cream)
+            .presentationDragIndicator(.visible)
+        }
         .onDisappear { voice.end() }
         #if DEBUG
         .task {
             // UI checks can exercise local recording without spending a conversation session.
             if ProcessInfo.processInfo.arguments.contains("--test-record-visit") { voice.startVisit() }
+            if ProcessInfo.processInfo.arguments.contains("--test-summary-home") {
+                UserDefaults.standard.removeObject(forKey: "careCircleDismissedHomeBrief")
+                let sample = SavedVisit(id: UUID(uuidString: "5B17C687-29EF-4B37-B6C6-113417B75583")!, date: .now,
+                    lines: [VisitLine(text: "Clinician: Your X-ray shows no fracture. Please schedule a follow-up appointment in two weeks.", elapsed: 0)],
+                    duration: 10, complete: true)
+                try? voice.visits.save(sample)
+            }
         }
         #endif
     }
@@ -99,21 +120,25 @@ struct ContentView: View {
 
                 VStack(alignment: .leading, spacing: 18) {
                     ScrollView {
-                        Text(openingText)
-                            .font(.system(size: voice.phase == .speaking ? min(greetingSize, 25) : greetingSize, weight: .regular, design: .rounded))
-                            .foregroundStyle(CareStyle.ink)
-                            .multilineTextAlignment(.leading)
-                            .lineSpacing(5)
-                            .frame(maxWidth: .infinity, minHeight: geometry.size.height * 0.25 - (voice.isActive ? 38 : 0), alignment: .leading)
-                            .accessibilityAddTraits(.isHeader)
+                        if voice.phase == .idle {
+                            HomeVisitBrief(store: voice.visits, greetingSize: greetingSize) { selectedHomeVisit = $0 }
+                        } else {
+                            Text(openingText)
+                                .font(.system(size: voice.phase == .speaking ? min(greetingSize, 25) : greetingSize, weight: .regular, design: .rounded))
+                                .foregroundStyle(CareStyle.ink)
+                                .multilineTextAlignment(.leading)
+                                .lineSpacing(5)
+                                .frame(maxWidth: .infinity, minHeight: geometry.size.height * 0.25 - (voice.isActive ? 38 : 0), alignment: .leading)
+                                .accessibilityAddTraits(.isHeader)
+                        }
                     }
                     .scrollIndicators(.hidden)
                     if voice.isActive {
                         Text(status).font(.subheadline).foregroundStyle(CareStyle.ink.opacity(0.65))
                     }
                 }
-                .frame(width: min(geometry.size.width * 0.62, 400), height: geometry.size.height * 0.25)
-                .position(x: geometry.size.width / 2, y: geometry.size.height * (voice.isActive ? 0.24 : 0.31))
+                .frame(width: min(geometry.size.width * (voice.isActive ? 0.62 : 0.78), 440), height: geometry.size.height * (voice.isActive ? 0.25 : 0.38))
+                .position(x: geometry.size.width / 2, y: geometry.size.height * (voice.isActive ? 0.24 : 0.32))
 
                 Button {
                     switch voice.phase {
@@ -167,6 +192,69 @@ struct ContentView: View {
 
     private func diameter(_ size: CGSize) -> CGFloat {
         min(voice.isActive ? 220 : 180, size.width * (voice.isActive ? 0.57 : 0.48), size.height * 0.34)
+    }
+}
+
+private struct HomeVisitBrief: View {
+    @ObservedObject var store: VisitStore
+    let greetingSize: CGFloat
+    let openVisit: (SavedVisit) -> Void
+    @AppStorage("careCircleDismissedHomeBrief") private var dismissedID = ""
+    private var latest: SavedVisit? { store.visits.first { $0.archived != true } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let visit = latest, dismissedID != visit.id.uuidString {
+                if let summary = visit.summary, !summary.isEmpty {
+                    Text("Your visit, in plain language.")
+                        .font(.subheadline).foregroundStyle(CareStyle.ink.opacity(0.65))
+                    Text(summary)
+                        .font(.system(size: 23, weight: .regular, design: .rounded))
+                        .lineSpacing(5)
+                        .textSelection(.enabled)
+                        .accessibilityIdentifier("Home visit summary")
+                    if !visit.complete || visit.transcriptionIssue != nil {
+                        Text("This recap uses an incomplete transcript.")
+                            .font(.footnote).foregroundStyle(CareStyle.burgundy)
+                    }
+                    HStack(spacing: 24) {
+                        Button("View appointment") { openVisit(visit) }
+                        Button("Got it") { dismissedID = visit.id.uuidString }
+                    }
+                    .font(.subheadline).foregroundStyle(CareStyle.burgundy)
+                } else if visit.transcriptText.isEmpty {
+                    Text("Want to listen back to your appointment?")
+                        .font(.system(size: greetingSize, weight: .regular, design: .rounded))
+                    Text("There isn’t enough transcribed speech for a summary.")
+                        .font(.callout).foregroundStyle(CareStyle.ink.opacity(0.65))
+                    Button("View recording") { openVisit(visit) }.foregroundStyle(CareStyle.burgundy)
+                } else if let error = visit.summaryError {
+                    Text("Let’s make your appointment easier to understand.")
+                        .font(.system(size: 27, weight: .regular, design: .rounded))
+                    Text(error).font(.callout).foregroundStyle(CareStyle.ink.opacity(0.65))
+                    Button("Try summary again") { store.summarize(visit.id) }.foregroundStyle(CareStyle.burgundy)
+                } else {
+                    Text("I’m putting your appointment into plain language.")
+                        .font(.system(size: 27, weight: .regular, design: .rounded))
+                    ProgressView("Preparing your short recap…").font(.callout)
+                    Button("View appointment") { openVisit(visit) }.foregroundStyle(CareStyle.burgundy)
+                }
+            } else {
+                Text("Hi, what can I\nhelp with?")
+                    .font(.system(size: greetingSize, weight: .regular, design: .rounded))
+                    .lineSpacing(5)
+                    .accessibilityAddTraits(.isHeader)
+            }
+        }
+        .foregroundStyle(CareStyle.ink)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: latest?.id) {
+            // Resume an unfinished recap if the app was closed while it was being generated.
+            if let visit = latest, dismissedID != visit.id.uuidString,
+               visit.summary == nil, visit.summaryError == nil, !visit.transcriptText.isEmpty {
+                store.summarize(visit.id)
+            }
+        }
     }
 }
 

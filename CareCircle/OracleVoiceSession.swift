@@ -499,7 +499,7 @@ final class CareCircleVoiceSession: NSObject, ObservableObject {
                 try visits.save(visit)
                 activeVisit = nil; finishingVisit = false; isRecordingVisit = false; visitStream = nil
                 end()
-                notice = message ?? (visit.transcriptText.isEmpty ? "Visit audio saved. No speech was transcribed; you can play the recording from Saved visits." : "Visit saved. Find your transcript and AI summary in the top-left menu.")
+                notice = message
                 if !visit.transcriptText.isEmpty { visits.summarize(visit.id) }
             } catch {
                 finishingVisit = false

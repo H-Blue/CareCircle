@@ -1,6 +1,29 @@
 import XCTest
 
 final class CareCircleUITests: XCTestCase {
+    func testHomeAnticipatesVisitSummary() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--test-summary-home"]
+        app.launch()
+        let recap = app.staticTexts["Home visit summary"]
+        XCTAssertTrue(recap.waitForExistence(timeout: 90))
+        XCTAssertLessThanOrEqual(recap.label.split(whereSeparator: \.isWhitespace).count, 75)
+        XCTAssertFalse(recap.label.localizedCaseInsensitiveContains("fracture"))
+        XCTAssertFalse(app.staticTexts["Visit saved. Find your transcript and AI summary in the top-left menu."].exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "CareCircle-home-recap"; screenshot.lifetime = .keepAlways; add(screenshot)
+        app.terminate(); app.launchArguments = []; app.launch()
+        XCTAssertTrue(recap.waitForExistence(timeout: 10))
+        app.buttons["View appointment"].tap()
+        XCTAssertTrue(app.buttons["AI summary"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Your X-ray shows no fracture")).firstMatch.exists)
+        app.buttons["Back to home"].tap()
+        XCTAssertTrue(app.buttons["Got it"].waitForExistence(timeout: 5))
+        app.buttons["Got it"].tap()
+        XCTAssertFalse(recap.exists)
+        XCTAssertTrue(app.staticTexts["Hi, what can I\nhelp with?"].exists)
+    }
+
     func testVoiceModeTransitionAndExit() {
         let app = XCUIApplication()
         app.launch()
