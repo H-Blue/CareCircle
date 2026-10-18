@@ -84,6 +84,7 @@ server {
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--paid-small-server", action="store_true", help="Explicitly select the approved E5 burstable server instead of free A1")
+    parser.add_argument("--replace-server", action="store_true", help="Replace the stateless backend with the current source, preserving the HTTPS gateway")
     args = parser.parse_args()
     shape = "VM.Standard.E5.Flex" if args.paid_small_server else "VM.Standard.A1.Flex"
     load_environment(ROOT / "Server/.env")
@@ -95,6 +96,14 @@ def main():
     gateway = oci.apigateway.GatewayClient(config)
     deployment = oci.apigateway.DeploymentClient(config)
     models = oci.core.models
+
+    if args.replace_server and state.get("instance"):
+        print("Replacing the stateless backend; saved visits remain on the iPhone.", flush=True)
+        compute.terminate_instance(state["instance"], preserve_boot_volume=False)
+        oci.wait_until(compute, compute.get_instance(state["instance"]), "lifecycle_state", "TERMINATED", max_wait_seconds=600)
+        state.pop("instance")
+        STATE_PATH.write_text(json.dumps(state, indent=2))
+        STATE_PATH.chmod(0o600)
 
     def save(key, value):
         state[key] = value

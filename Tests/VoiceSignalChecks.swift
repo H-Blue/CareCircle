@@ -9,6 +9,13 @@ struct VoiceSignalChecks {
     }
 
     static func main() {
+        for command in ["Start recording for my doctor's visit", "Can you begin recording?", "Please record my appointment", "Transcribe this doctor visit"] {
+            precondition(VisitCommand.isStart(command), "Direct visit command must open recording: \(command)")
+        }
+        for question in ["Don't start recording", "How do I start recording?", "Do not record my visit", "Can it record a doctor visit?", "Stop recording", "I started recording yesterday"] {
+            precondition(!VisitCommand.isStart(question), "Must not record for a negation or question about capabilities: \(question)")
+        }
+        precondition(SpokenText.clean("**Hello!** [Your notes](https://example.com)\n* Take care!") == "Hello. Your notes Take care.", "Formatting must not be read aloud.")
         let low = measure(frequency: 80, amplitude: 0.1)
         let high = measure(frequency: 6000, amplitude: 0.1)
         let quiet = measure(frequency: 80, amplitude: 0.005)

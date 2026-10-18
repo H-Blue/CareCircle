@@ -29,6 +29,14 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(result, [{"role": "user", "content": "Hi"}])
 
 
+class SpokenOutputTests(unittest.TestCase):
+    def test_markdown_never_reaches_voice(self):
+        self.assertEqual(server.spoken_text("**Hello!** [Notes](https://example.com)\n* Take care!"), "Hello. Notes Take care.")
+
+    def test_medication_numbers_are_preserved(self):
+        self.assertEqual(server.spoken_text("They said 2.5 mg, twice a day."), "They said 2.5 mg, twice a day.")
+
+
 class HTTPTests(unittest.TestCase):
     def setUp(self):
         self.chat = Mock()

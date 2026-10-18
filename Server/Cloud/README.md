@@ -23,7 +23,7 @@ If free A1 capacity is unavailable, obtain the account owner's approval before s
 Server/.venv/bin/python Server/Cloud/deploy.py --paid-small-server
 ```
 
-Deployment identifiers and endpoint are saved in `~/.oci/carecircle/cloud-state.json`, outside Git. The script reuses recorded resources on retries. A server's source is installed at first boot; changing local source and rerunning this script does not update an existing VM. Future backend releases need a separate controlled rollout or replacement.
+Deployment identifiers and endpoint are saved in `~/.oci/carecircle/cloud-state.json`, outside Git. The script reuses recorded resources on retries. A server's source is installed at first boot; changing local source and rerunning this script does not update an existing VM. To deploy changed source to this stateless personal backend, use `--paid-small-server --replace-server`. This replaces only the app VM and its boot volume, preserves the gateway address and backend token, and causes a brief outage during bootstrapping. Saved visits live on the iPhone. Do not use replacement if server-side persistence is added later without first implementing migration/backup.
 
 The small paid option was approved for this prototype after Chicago A1 capacity failed in all three availability domains. Estimated basic hosting is about $8–10/month depending on storage/free allowances and usage, excluding Generative AI and Speech charges. Trial credits apply while available. This estimate is not a spending cap. Review actual usage in Oracle billing.
 
@@ -42,7 +42,8 @@ This writes an owner-only, ignored `CareCircle/LocalConnection.plist`. Debug bui
 1. The app requests a temporary Oracle realtime Speech token through `/speech/session`.
 2. The microphone sends 16 kHz signed 16-bit mono PCM directly to Oracle's authenticated WSS endpoint. The same input buffer supplies local bass/treble energy for the circles.
 3. Oracle's final utterance result triggers `/chat` with bounded recent context.
-4. `/speech/synthesize` returns Oracle MP3 audio. The app plays the complete reply, then begins a new listening turn.
+4. `/speech/synthesize` strips formatting markers and returns Oracle MP3 audio. The app plays the reply, then begins a new listening turn. A tap during playback interrupts and retains recent conversation history.
+5. A direct visit-recording command opens continuous transcription instead of calling chat. The app writes audio and checkpoints transcripts locally; finishing generates a grounded summary through the same authenticated chat route. This does not enable server-side storage or automatic speaker identification.
 
 An ordinary turn stops after one minute without completion. Ending the session, backgrounding the app, or an audio interruption stops the microphone and closes its connection. No recording files are created in this mode.
 

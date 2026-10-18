@@ -1,22 +1,21 @@
 # Doctor-visit recordings
 
-The current voice mode is a live conversation with Oracle. It streams audio for recognition, responds, and returns to listening. It does not save a recording or claim that a visit has been recorded. A listening turn is limited to one minute. Visit recording must be implemented as a separate, longer-running capture mode.
+## Implemented
 
-## Intended flow
+Say “start recording my doctor visit,” “please record my appointment,” or choose **Record a doctor visit** in the top-left menu. Direct requests dispatch to a recording action before the language model is called; negations and questions about how recording works do not trigger it.
 
-1. The user asks to record a doctor's visit or selects Start visit recording.
-2. Care Circle shows an explicit confirmation, then a persistent recording indicator, duration, pause, and stop controls. Starting this mode suspends the conversational assistant so it cannot speak over the visit.
-3. Audio is written incrementally to a protected local file. The user can stop and save, or discard. An interrupted recording is recoverable and is not silently marked complete.
-4. Saved visits appear in a library with a user-editable title, date, duration, and processing status. The user can play and delete a saved visit.
-5. When cloud saving is enabled, audio uploads to a private Oracle Object Storage bucket using per-user authorization, encrypted transport, and scoped access. The app must not contain a permanent bucket credential or public object URL.
-6. Oracle Speech performs long-form transcription. Care Circle can retrieve the transcript and answer later questions with citations or time references back to that visit.
+Recording replaces the home screen with a cream transcript view, recording status, elapsed time and reactive burgundy finish button. The assistant does not speak during a visit. Oracle realtime Speech supplies partial and final transcript text. Final phrases remain visible as new phrases arrive; speaker identities are not inferred.
 
-## Before enabling
+Tap the circle to finish. The app asks Oracle to finalize the last words, closes the audio file, saves the visit and returns home. **Saved visits & AI summaries** in the top-left menu contains transcripts and audio playback. **AI summary** is at the top left of each transcript. Summaries are generated through Oracle Generative AI from transcript chunks, with an explicit grounding instruction and retry on failure.
 
-- Add real per-user authentication and ownership checks; the current developer connection token is for a personal prototype.
-- Make recording consent, local/cloud storage choice, retention, and deletion explicit in the recording flow.
-- Support on-device file protection, incremental saving, interruptions, storage-full recovery, and playback.
-- Implement actual recording actions and results. The language model alone must never announce that a recording started or was saved.
-- Verify long recordings on a physical iPhone, including audio route changes and locking/background behavior. The current app deliberately stops live voice when backgrounded.
+Audio is written incrementally to a CAF file. Transcripts are checkpointed during recording. Metadata, summaries and audio live in the app's Application Support/Visits directory, with iOS complete file protection and exclusion from device/cloud backups. Nothing is uploaded to Object Storage. Speech streams to Oracle; transcript text is sent to Oracle for summarization. Ordinary conversations are not persisted. Swipe a saved visit to delete audio, transcript and summary. Deleting the app removes all local visits.
 
-All planned processing can remain in Oracle: Object Storage for private media, Speech for transcripts, Generative AI for summaries and retrieval-backed answers. No ElevenLabs dependency is introduced.
+The screen reminds the user to obtain everyone's agreement before recording. The display stays awake while recording. Backgrounding, an audio interruption or a storage failure stops the visit and preserves the captured material as interrupted. Local audio begins before the Oracle connection; a network/transcription failure leaves recording running and adds a visible transcript-gap warning. A process crash leaves the last checkpoint and audio file available on next launch. Do not silently label interrupted transcripts complete.
+
+## Limits and further work
+
+- This is a personal development prototype using one backend connection token, not a multi-user service.
+- The Oracle integration is turn-based recognition, generation and synthesized speech. Tapping during a reply interrupts playback and preserves conversation history; acoustic hands-free barge-in and full duplex voice are not implemented.
+- Realtime transcripts do not identify Doctor/Patient automatically. Oracle file-based diarization would require a separate upload and processing workflow; never fabricate speaker names.
+- Network failures preserve captured audio but do not automatically retranscribe it. No background/locked-screen recording, pause/resume, cloud backup, cross-device sync, or retrieval-backed chat is implemented.
+- Verify long appointments, low storage, incoming calls, Bluetooth and acoustic behavior on physical iPhones before relying on it for a visit. Simulator tests cover recording UI, local save/reopen, playback and summary access, not clinical accuracy or long-session reliability.

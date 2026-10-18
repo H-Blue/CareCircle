@@ -5,7 +5,7 @@ import Combine
 import Dispatch
 
 /// Audio route changes and engine setup may block; keep them off the UI thread.
-private enum AudioWork {
+enum AudioWork {
     static let queue = DispatchQueue(label: "com.carecircle.audio-control")
 
     static func run(_ operation: @escaping () throws -> Void) async throws {
@@ -28,12 +28,13 @@ private enum AudioWork {
 final class MicrophoneCapture: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private var hasTap = false
+    private var recordingFile: AVAudioFile?
 
-    func start(deliver: @escaping (Data, Float, Float) -> Void) async throws {
-        try await AudioWork.run { try self.startEngine(deliver: deliver) }
+    func start(recordingURL: URL? = nil, onRecordingError: @escaping () -> Void = {}, deliver: @escaping (Data, Float, Float) -> Void) async throws {
+        try await AudioWork.run { try self.startEngine(recordingURL: recordingURL, onRecordingError: onRecordingError, deliver: deliver) }
     }
 
-    private func startEngine(deliver: @escaping (Data, Float, Float) -> Void) throws {
+    private func startEngine(recordingURL: URL?, onRecordingError: @escaping () -> Void, deliver: @escaping (Data, Float, Float) -> Void) throws {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
         try session.setActive(true)
@@ -44,8 +45,15 @@ final class MicrophoneCapture: @unchecked Sendable {
               let converter = AVAudioConverter(from: source, to: target) else {
             throw ConnectionError.message("The microphone isn’t ready. Please try again.")
         }
+        if let recordingURL {
+            recordingFile = try AVAudioFile(forWriting: recordingURL, settings: source.settings)
+            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: recordingURL.path)
+        }
         var bands = VoiceBands()
         input.installTap(onBus: 0, bufferSize: 2048, format: source) { buffer, _ in
+            if let file = self.recordingFile {
+                do { try file.write(from: buffer) } catch { onRecordingError(); return }
+            }
             guard let samples = buffer.floatChannelData?[0] else { return }
             let levels = bands.levels(samples: UnsafeBufferPointer(start: samples, count: Int(buffer.frameLength)), sampleRate: source.sampleRate)
             let capacity = AVAudioFrameCount(Double(buffer.frameLength) * 16000 / source.sampleRate + 32)
@@ -70,6 +78,7 @@ final class MicrophoneCapture: @unchecked Sendable {
         AudioWork.queue.async {
             self.engine.stop()
             if self.hasTap { self.engine.inputNode.removeTap(onBus: 0); self.hasTap = false }
+            self.recordingFile = nil
         }
     }
 }
@@ -86,6 +95,12 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
     @Published private(set) var reply = ""
     @Published private(set) var error: String?
     @Published private(set) var audioIsBeingSent = false
+    @Published private(set) var activeVisit: SavedVisit?
+    @Published private(set) var finishingVisit = false
+    @Published private(set) var isRecordingVisit = false
+    private var visitStream: AsyncStream<Data>?
+    @Published private(set) var notice: String?
+    let visits = VisitStore()
     private let microphone = MicrophoneCapture()
     private var socket: URLSessionWebSocketTask?
     private var socketSession: URLSession?
@@ -121,11 +136,13 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
     }
 
     func begin() {
+        guard activeVisit == nil else { return }
         end()
         error = nil
         reply = ""
         transcript = ""
         history = []
+        notice = nil
         generation = UUID()
         let turn = generation
         task = Task { await listen(turn: turn) }
@@ -151,7 +168,7 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
             components.queryItems = [
                 URLQueryItem(name: "encoding", value: "audio/raw;rate=16000"),
                 URLQueryItem(name: "languageCode", value: "en-US"),
-                URLQueryItem(name: "finalSilenceThresholdInMs", value: "1200"),
+                URLQueryItem(name: "finalSilenceThresholdInMs", value: "1600"),
                 URLQueryItem(name: "partialSilenceThresholdInMs", value: "300"),
                 URLQueryItem(name: "isAckEnabled", value: "false"),
             ]
@@ -166,7 +183,7 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
             timeout = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(15))
                 guard !Task.isCancelled, let self, self.generation == turn, self.phase == .connecting else { return }
-                self.fail("Oracle voice took too long to connect. Please try again.")
+                self.speechFailed("Oracle voice took too long to connect. Please try again.")
             }
             while generation == turn && !Task.isCancelled {
                 let message = try await connection.receive()
@@ -180,6 +197,16 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
                     for result in results {
                         if let text = result["transcription"] as? String, !text.isEmpty {
                             transcript = text
+                            if var visit = activeVisit {
+                                if result["isFinal"] as? Bool == true {
+                                    visit.lines.append(VisitLine(text: text, elapsed: Date().timeIntervalSince(visit.date)))
+                                    visit.partial = ""
+                                } else { visit.partial = text }
+                                activeVisit = visit
+                                do { try visits.save(visit) }
+                                catch { fail("Device storage is full. The visit was stopped to protect your recording."); return }
+                                continue
+                            }
                             if result["isFinal"] as? Bool == true {
                                 stopCapture()
                                 await respond(text: text, turn: turn)
@@ -193,25 +220,17 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
             }
         } catch {
             guard generation == turn, !Task.isCancelled, phase != .failed else { return }
-            fail(error.localizedDescription)
+            speechFailed(error.localizedDescription)
         }
     }
 
     private func capture(connection: URLSessionWebSocketTask, turn: UUID) async throws {
         guard phase == .connecting else { return }
-        let stream = AsyncStream<Data>(bufferingPolicy: .bufferingNewest(64)) { continuation in audio = continuation }
-        let continuation = audio
-        try await microphone.start { [weak self] data, bass, treble in
-            let result = continuation?.yield(data)
-            Task { @MainActor in
-                guard let self, self.generation == turn, self.phase == .listening else { return }
-                if case .dropped? = result {
-                    self.fail("The connection isn’t keeping up with your voice. Please try again.")
-                    return
-                }
-                self.bass = self.bass * 0.55 + CGFloat(bass) * 0.45
-                self.treble = self.treble * 0.55 + CGFloat(treble) * 0.45
-            }
+        let stream: AsyncStream<Data>
+        if let visitStream { stream = visitStream }
+        else {
+            stream = AsyncStream<Data>(bufferingPolicy: .bufferingNewest(64)) { continuation in audio = continuation }
+            try await startMicrophone(turn: turn)
         }
         guard generation == turn, !Task.isCancelled else { microphone.stop(); return }
         phase = .listening
@@ -223,14 +242,55 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
                     try await connection.send(.data(data))
                 }
             } catch {
-                if !Task.isCancelled, self?.generation == turn { self?.fail("The voice connection was interrupted. Please try again.") }
+                if !Task.isCancelled, self?.generation == turn { self?.speechFailed("The voice connection was interrupted. Please try again.") }
             }
         }
+        if activeVisit == nil {
         captureTimeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(60))
             guard !Task.isCancelled, let self, self.generation == turn else { return }
             self.fail("Listening paused after one minute. Tap the circle to continue.")
         }
+        }
+    }
+
+    private func startMicrophone(turn: UUID) async throws {
+        let continuation = audio
+        let recordingURL = activeVisit.map { visits.audioURL($0) }
+        try await microphone.start(recordingURL: recordingURL, onRecordingError: { [weak self] in
+            Task { @MainActor in self?.fail("The recording couldn’t be saved. Please check device storage.") }
+        }) { [weak self] data, bass, treble in
+            let result = continuation?.yield(data)
+            Task { @MainActor in
+                guard let self, self.generation == turn, self.phase == .listening || self.activeVisit != nil else { return }
+                if case .dropped? = result {
+                    if self.activeVisit != nil {
+                        self.markTranscriptIssue("The live transcript may have gaps because the connection fell behind. The local audio recording continues.")
+                    } else {
+                        self.fail("The connection isn’t keeping up with your voice. Please try again.")
+                        return
+                    }
+                }
+                self.bass = self.bass * 0.55 + CGFloat(bass) * 0.45
+                self.treble = self.treble * 0.55 + CGFloat(treble) * 0.45
+            }
+        }
+    }
+
+    private func markTranscriptIssue(_ message: String) {
+        guard var visit = activeVisit, visit.transcriptionIssue != message else { return }
+        visit.transcriptionIssue = message
+        activeVisit = visit
+        do { try visits.save(visit) }
+        catch { fail("Couldn’t save the transcript. Please check device storage.") }
+    }
+
+    private func speechFailed(_ message: String) {
+        if activeVisit != nil, isRecordingVisit {
+            stopCapture(keepRecording: true)
+            markTranscriptIssue("Live transcription stopped: " + message + " The audio is still recording on this device.")
+            phase = .listening
+        } else { fail(message) }
     }
 
     func finishTurn() {
@@ -247,6 +307,7 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
 
     private func respond(text: String, turn: UUID) async {
         guard generation == turn else { return }
+        if VisitCommand.isStart(text) { startVisit(); return }
         phase = .thinking
         do {
             let userMessage = ChatMessage(role: "user", content: text)
@@ -255,11 +316,84 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
             history.append(userMessage)
             history.append(ChatMessage(role: "assistant", content: result))
             reply = result
-            remainingSpeech = Self.speechSegments(result)
+            let spoken = SpokenText.clean(result)
+            guard !spoken.isEmpty else { throw ConnectionError.message("The reply couldn’t be spoken. Please try again.") }
+            remainingSpeech = Self.speechSegments(spoken)
             try await speakNext(turn: turn)
         } catch {
             guard generation == turn, !Task.isCancelled else { return }
             fail(error.localizedDescription)
+        }
+    }
+
+    /// Interrupt playback and preserve conversational history.
+    func interruptReply() {
+        guard activeVisit == nil else { return }
+        task?.cancel(); player?.stop(); player = nil; remainingSpeech = []
+        generation = UUID()
+        let turn = generation
+        task = Task { await listen(turn: turn) }
+    }
+
+    func startVisit() {
+        guard activeVisit == nil else { return }
+        end()
+        let visit = SavedVisit(id: UUID(), date: Date())
+        do { try visits.save(visit) }
+        catch { notice = "Couldn’t start recording. Please check device storage."; return }
+        activeVisit = visit
+        UIApplication.shared.isIdleTimerDisabled = true
+        notice = nil
+        generation = UUID()
+        let turn = generation
+        phase = .connecting
+        task = Task {
+            do {
+                let permission = await AVAudioApplication.requestRecordPermission()
+                guard generation == turn, !Task.isCancelled else { return }
+                guard permission else { throw ConnectionError.message("Allow microphone access in Settings to record a visit.") }
+                visitStream = AsyncStream<Data>(bufferingPolicy: .bufferingNewest(64)) { continuation in audio = continuation }
+                try await startMicrophone(turn: turn)
+                guard generation == turn, !Task.isCancelled else { microphone.stop(); return }
+                isRecordingVisit = true
+                await listen(turn: turn)
+            } catch { if generation == turn, !Task.isCancelled { fail(error.localizedDescription) } }
+        }
+    }
+
+    func finishVisit(interrupted: Bool = false, message: String? = nil) {
+        guard activeVisit != nil, !finishingVisit else { return }
+        finishingVisit = true
+        let background = UIApplication.shared.beginBackgroundTask(withName: "Save visit")
+        let turn = generation
+        // Keep receiving briefly so Oracle can finalize the last words before saving.
+        finalizer?.cancel()
+        finalizer = Task {
+            defer {
+                UIApplication.shared.isIdleTimerDisabled = false
+                if background != .invalid { UIApplication.shared.endBackgroundTask(background) }
+            }
+            if !interrupted, let socket {
+                try? await socket.send(.string("{\"event\":\"SEND_FINAL_RESULT\"}"))
+                try? await Task.sleep(for: .milliseconds(1500))
+            }
+            guard generation == turn, var visit = activeVisit else { return }
+            visit.duration = Date().timeIntervalSince(visit.date)
+            visit.complete = !interrupted
+            stopCapture()
+            // Wait for the microphone queue to close the audio file before exposing playback.
+            try? await AudioWork.run {}
+            do {
+                try visits.save(visit)
+                activeVisit = nil; finishingVisit = false; isRecordingVisit = false; visitStream = nil
+                end()
+                notice = message ?? (visit.transcriptText.isEmpty ? "Visit audio saved. No speech was transcribed; you can play the recording from Saved visits." : "Visit saved. Find your transcript and AI summary in the top-left menu.")
+                if !visit.transcriptText.isEmpty { visits.summarize(visit.id) }
+            } catch {
+                finishingVisit = false
+                self.error = "Couldn’t save the visit. Free some storage, then tap Finish to retry."
+                phase = .failed
+            }
         }
     }
 
@@ -320,9 +454,9 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
         }
     }
 
-    private func stopCapture() {
+    private func stopCapture(keepRecording: Bool = false) {
         audioIsBeingSent = false
-        microphone.stop()
+        if !keepRecording { microphone.stop(); isRecordingVisit = false }
         audio?.finish(); audio = nil
         sender?.cancel(); sender = nil
         timeout?.cancel(); timeout = nil
@@ -333,6 +467,7 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
     }
 
     private func fail(_ message: String) {
+        if activeVisit != nil { finishVisit(interrupted: true, message: message); return }
         stopCapture()
         player?.stop(); player = nil
         error = message
@@ -341,6 +476,7 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
     }
 
     func end() {
+        if activeVisit != nil { finishVisit(interrupted: true, message: "Recording stopped when the app or audio session was interrupted. The captured visit is in Saved visits."); return }
         generation = UUID()
         task?.cancel(); task = nil
         finalizer?.cancel(); finalizer = nil
