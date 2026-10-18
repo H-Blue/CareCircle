@@ -1,7 +1,5 @@
 import SwiftUI
 import Security
-import Speech
-import AVFoundation
 
 enum ConnectionError: LocalizedError {
     case message(String)
@@ -58,7 +56,7 @@ struct CareCircleAPI {
         guard let url = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines)),
               let host = url.host, !host.isEmpty,
               url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
-              url.path.isEmpty || url.path == "/" else {
+              !url.path.contains("..") else {
             throw ConnectionError.message("Enter your Care Circle server address, such as https://care.example.com.")
         }
         if url.scheme == "https" { return url }
@@ -68,7 +66,7 @@ struct CareCircleAPI {
         throw ConnectionError.message("Use an HTTPS server address to protect your conversations.")
     }
 
-    func request(_ path: String, messages: [ChatMessage]? = nil) async throws -> Data {
+    func request(_ path: String, messages: [ChatMessage]? = nil, text: String? = nil, post: Bool = false) async throws -> Data {
         let base = try Self.validatedURL(address)
         guard !token.isEmpty else { throw ConnectionError.message("Add your connection token in the menu first.") }
         var request = URLRequest(url: base.appendingPathComponent(path))
@@ -79,6 +77,11 @@ struct CareCircleAPI {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(["messages": messages])
+        }
+        if post || text != nil {
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: text.map { ["text": $0] } ?? [:])
         }
         let configuration = URLSessionConfiguration.ephemeral
         let session = URLSession(configuration: configuration)
@@ -138,7 +141,7 @@ struct ConnectionSettingsView: View {
                 if let status { Text(status).font(.callout).accessibilityAddTraits(.updatesFrequently) }
             }
             Section {
-                Text("Messages you send are processed by Oracle Cloud. Conversations are held only while this chat is open in the app; the development server does not save or log them.")
+                Text("Voice and messages are processed by Oracle Cloud while listening is active. End the session to stop the microphone. Ordinary conversations are not saved as visit recordings.")
                     .font(.footnote)
             }
         }
@@ -169,222 +172,6 @@ struct ConnectionSettingsView: View {
         } catch is CancellationError {
         } catch {
             status = error.localizedDescription
-        }
-    }
-}
-
-@MainActor
-final class VoiceInput: ObservableObject {
-    @Published var transcript = ""
-    @Published var isListening = false
-    @Published var error: String?
-    private let audioEngine = AVAudioEngine()
-    private var recognitionTask: SFSpeechRecognitionTask?
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var tapInstalled = false
-    private var starting = false
-    private var generation = UUID()
-
-    func start() async {
-        guard !isListening && !starting else { return }
-        starting = true
-        error = nil
-        let currentGeneration = UUID()
-        generation = currentGeneration
-        defer { starting = false }
-        let speech = await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
-        }
-        let microphone = await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
-        }
-        guard !Task.isCancelled, generation == currentGeneration else { return }
-        guard speech && microphone else {
-            error = "Allow microphone and speech access in iPhone Settings to use voice. You can also type below."
-            return
-        }
-        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")),
-              recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else {
-            error = "On-device speech recognition isn’t available. Please type your message instead."
-            return
-        }
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
-            try session.setActive(true)
-            let request = SFSpeechAudioBufferRecognitionRequest()
-            request.requiresOnDeviceRecognition = true
-            request.shouldReportPartialResults = true
-            self.request = request
-            transcript = ""
-            let input = audioEngine.inputNode
-            let format = input.outputFormat(forBus: 0)
-            guard format.sampleRate > 0 && format.channelCount > 0 else {
-                throw ConnectionError.message("The microphone isn’t ready. Please try again.")
-            }
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-                request.append(buffer)
-            }
-            tapInstalled = true
-            audioEngine.prepare()
-            try audioEngine.start()
-            isListening = true
-            recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, failure in
-                Task { @MainActor in
-                    guard let self, self.generation == currentGeneration else { return }
-                    if let result { self.transcript = result.bestTranscription.formattedString }
-                    if result?.isFinal == true || failure != nil {
-                        if failure != nil && self.isListening {
-                            self.error = "Voice input stopped. You can review or edit your message before sending."
-                        }
-                        self.stop()
-                    }
-                }
-            }
-        } catch {
-            stop()
-            self.error = error.localizedDescription
-        }
-    }
-
-    func stop() {
-        generation = UUID()
-        isListening = false
-        audioEngine.stop()
-        if tapInstalled {
-            audioEngine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
-        }
-        request?.endAudio()
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        request = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-    }
-}
-
-struct ConversationView: View {
-    @Environment(\.dismiss) private var dismiss
-    @AppStorage("careCircleServerAddress") private var address = ""
-    @StateObject private var voice = VoiceInput()
-    @State private var messages: [ChatMessage] = []
-    @State private var draft = ""
-    @State private var error: String?
-    @State private var isSending = false
-    @State private var work: Task<Void, Never>?
-    @State private var readAloud = true
-    @State private var speaker = AVSpeechSynthesizer()
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 18) {
-                            if messages.isEmpty {
-                                Text("What’s on your mind?").font(.title2.weight(.medium))
-                                Text("Speak or type a message, then tap Send. Your messages are processed by Oracle Cloud.")
-                                    .foregroundStyle(.secondary)
-                            }
-                            ForEach(messages) { message in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(message.role == "user" ? "You" : "Care Circle")
-                                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                    Text(message.content).textSelection(.enabled)
-                                }
-                                .padding(16)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(.white.opacity(message.role == "user" ? 0.35 : 0.65), in: RoundedRectangle(cornerRadius: 18))
-                                .id(message.id)
-                            }
-                            if isSending { ProgressView("Thinking…").id("thinking") }
-                            if let error = error ?? voice.error {
-                                Text(error).font(.callout).foregroundStyle(.red)
-                            }
-                        }
-                        .padding(24)
-                    }
-                    .onChange(of: messages.count) { _, _ in
-                        if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
-                    }
-                }
-
-                if address.isEmpty || ConnectionToken.read().isEmpty {
-                    NavigationLink("Set up AI connection") { ConnectionSettingsView() }
-                        .padding()
-                }
-
-                VStack(spacing: 12) {
-                    TextField("Your message", text: $draft, axis: .vertical)
-                        .lineLimit(1...5)
-                        .padding(14)
-                        .background(.white.opacity(0.65), in: RoundedRectangle(cornerRadius: 16))
-                        .disabled(isSending)
-                    HStack {
-                        Button {
-                            speaker.stopSpeaking(at: .immediate)
-                            if voice.isListening { voice.stop() }
-                            else { work = Task { await voice.start() } }
-                        } label: {
-                            Label(voice.isListening ? "Stop listening" : "Speak", systemImage: voice.isListening ? "stop.fill" : "mic.fill")
-                        }
-                        .disabled(isSending)
-                        Spacer()
-                        Button("Send", systemImage: "arrow.up") {
-                            voice.stop()
-                            work = Task { await send() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || address.isEmpty)
-                    }
-                    Toggle("Read replies aloud", isOn: $readAloud).font(.footnote)
-                }
-                .padding(20)
-            }
-            .background(Color(red: 0.89, green: 0.85, blue: 0.74).ignoresSafeArea())
-            .tint(Color(red: 0.57, green: 0.21, blue: 0.35))
-            .navigationTitle("Care Circle")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
-            .onChange(of: voice.transcript) { _, transcript in draft = transcript }
-            .onChange(of: readAloud) { _, enabled in if !enabled { speaker.stopSpeaking(at: .immediate) } }
-            .onDisappear {
-                work?.cancel()
-                voice.stop()
-                speaker.stopSpeaking(at: .immediate)
-            }
-        }
-    }
-
-    @MainActor private func send() async {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isSending else { return }
-        guard text.count <= 4000 else { error = "Please keep each message under 4,000 characters."; return }
-        isSending = true
-        error = nil
-        speaker.stopSpeaking(at: .immediate)
-        defer { isSending = false }
-        let userMessage = ChatMessage(role: "user", content: text)
-        // Keep the most recent nine complete exchanges, then the new user message.
-        let history = Array(messages.suffix(18)) + [userMessage]
-        do {
-            let reply = try await CareCircleAPI(address: address, token: ConnectionToken.read()).reply(to: history)
-            try Task.checkCancellation()
-            messages.append(userMessage)
-            messages.append(ChatMessage(role: "assistant", content: reply))
-            draft = ""
-            if readAloud {
-                let audio = AVAudioSession.sharedInstance()
-                try? audio.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-                let utterance = AVSpeechUtterance(string: reply)
-                utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-                speaker.speak(utterance)
-            }
-        } catch is CancellationError {
-        } catch {
-            self.error = error.localizedDescription
         }
     }
 }

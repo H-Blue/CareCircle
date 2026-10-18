@@ -1,9 +1,10 @@
-"""Local development bridge to OCI Generative AI. No chat persistence or payload logging."""
+"""Personal Care Circle backend for Oracle chat and speech. No conversation persistence or payload logging."""
 
 import hmac
 import json
 import os
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -54,17 +55,25 @@ class OracleChat:
         if self.format not in {"COHERE", "GENERIC"}:
             raise ValueError("OCI_CHAT_FORMAT must be COHERE or GENERIC.")
         region = os.environ.get("OCI_REGION", "us-chicago-1")
-        config = oci.config.from_file(
-            str(Path(os.environ.get("OCI_CONFIG_FILE", "~/.oci/config")).expanduser()),
-            os.environ.get("OCI_PROFILE", "DEFAULT"),
-        )
-        config["region"] = region
+        if os.environ.get("OCI_AUTH") == "instance_principal":
+            config = {"region": region}
+            auth = {"signer": oci.auth.signers.InstancePrincipalsSecurityTokenSigner()}
+        else:
+            config = oci.config.from_file(
+                str(Path(os.environ.get("OCI_CONFIG_FILE", "~/.oci/config")).expanduser()),
+                os.environ.get("OCI_PROFILE", "DEFAULT"),
+            )
+            config["region"] = region
+            auth = {}
         self.client = oci.generative_ai_inference.GenerativeAiInferenceClient(
             config,
             service_endpoint=f"https://inference.generativeai.{region}.oci.oraclecloud.com",
             retry_strategy=oci.retry.NoneRetryStrategy(),
             timeout=(10, 90),
+            **auth,
         )
+        self.speech_client = oci.ai_speech.AIServiceSpeechClient(config, timeout=(10, 60), **auth)
+        self.region = region
         # Serialize calls for this personal development bridge and bound model usage.
         self.lock = threading.Lock()
 
@@ -78,7 +87,7 @@ class OracleChat:
             ]
             request = models.CohereChatRequest(
                 message=messages[-1]["content"], chat_history=history,
-                preamble_override=SYSTEM_PROMPT, max_tokens=600, temperature=0.4,
+                preamble_override=SYSTEM_PROMPT, max_tokens=350, temperature=0.4,
                 is_stream=False,
             )
         else:
@@ -106,12 +115,33 @@ class OracleChat:
             raise ValueError("Oracle returned an empty response.")
         return text.strip()
 
+    def speech_session(self):
+        details = self.oci.ai_speech.models.CreateRealtimeSessionTokenDetails(compartment_id=self.compartment)
+        session = self.speech_client.create_realtime_session_token(details).data
+        return {"token": session.token, "compartmentId": self.compartment,
+                "endpoint": f"wss://realtime.aiservice.{self.region}.oci.oraclecloud.com/ws/transcribe/stream"}
+
+    def synthesize(self, text):
+        models = self.oci.ai_speech.models
+        details = models.SynthesizeSpeechDetails(
+            text=text, compartment_id=self.compartment, is_stream_enabled=False,
+            configuration=models.TtsOracleConfiguration(
+                model_details=models.TtsOracleTts2NaturalModelDetails(
+                    voice_id="Annabelle", language_code="en-US"),
+                speech_settings=models.TtsOracleSpeechSettings(text_type="TEXT", output_format="MP3"),
+            ),
+        )
+        return self.speech_client.synthesize_speech(details).data.content
+
 
 class BusyError(Exception):
     pass
 
 
 def make_handler(chat, token):
+    rate_lock = threading.Lock()
+    requests = []
+
     class Handler(BaseHTTPRequestHandler):
         # Do not log URLs, health questions, auth headers, or Oracle error bodies.
         def log_message(self, *args):
@@ -123,8 +153,11 @@ def make_handler(chat, token):
 
         def reply(self, status, body):
             data = json.dumps(body).encode()
+            self.send_data(status, data, "application/json")
+
+        def send_data(self, status, data, content_type):
             self.send_response(status)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -146,7 +179,7 @@ def make_handler(chat, token):
             if not self.authenticated():
                 self.reply(401, {"error": "Connection token is incorrect."})
                 return
-            if self.path != "/chat":
+            if self.path not in ("/chat", "/speech/session", "/speech/synthesize"):
                 self.reply(404, {"error": "Not found."})
                 return
             try:
@@ -155,12 +188,29 @@ def make_handler(chat, token):
                     raise ValueError("Request is too large or empty.")
                 if self.headers.get_content_type() != "application/json":
                     raise ValueError("Expected JSON.")
-                messages = validate_messages(json.loads(self.rfile.read(length)))
+                payload = json.loads(self.rfile.read(length))
+                if self.path == "/chat":
+                    messages = validate_messages(payload)
+                elif self.path == "/speech/synthesize":
+                    text = payload.get("text") if isinstance(payload, dict) else None
+                    if not isinstance(text, str) or not 1 <= len(text.strip()) <= 2000:
+                        raise ValueError("Speech text must contain 1–2000 characters.")
             except (ValueError, UnicodeDecodeError):
                 self.reply(400, {"error": "Invalid conversation. Please start a new conversation."})
                 return
             try:
-                self.reply(200, {"reply": chat.chat(messages)})
+                with rate_lock:
+                    now = time.monotonic()
+                    requests[:] = [t for t in requests if now - t < 60]
+                    if len(requests) >= 30:
+                        raise BusyError()
+                    requests.append(now)
+                if self.path == "/chat":
+                    self.reply(200, {"reply": chat.chat(messages)})
+                elif self.path == "/speech/session":
+                    self.reply(200, chat.speech_session())
+                else:
+                    self.send_data(200, chat.synthesize(text.strip()), "audio/mpeg")
             except BusyError:
                 self.reply(429, {"error": "Care Circle is answering another request. Please try again shortly."})
             except Exception as error:

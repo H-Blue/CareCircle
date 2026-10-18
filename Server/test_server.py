@@ -83,6 +83,22 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request(path="/health")[0], 401)
         self.assertEqual(self.request(token=self.token, path="/health")[0], 200)
 
+    def test_speech_session_requires_authentication(self):
+        status, _ = self.request({}, path="/speech/session")
+        self.assertEqual(status, 401)
+        self.chat.speech_session.assert_not_called()
+
+    def test_speech_session_returns_only_scoped_session_details(self):
+        self.chat.speech_session.return_value = {"token": "short-lived", "compartmentId": "test", "endpoint": "wss://oracle"}
+        status, result = self.request({}, token=self.token, path="/speech/session")
+        self.assertEqual(status, 200)
+        self.assertEqual(set(result), {"token", "compartmentId", "endpoint"})
+
+    def test_oversized_speech_does_not_reach_oracle(self):
+        status, _ = self.request({"text": "a" * 2001}, token=self.token, path="/speech/synthesize")
+        self.assertEqual(status, 400)
+        self.chat.synthesize.assert_not_called()
+
 
 class OracleRequestTests(unittest.TestCase):
     def test_cohere_sdk_request_retains_system_prompt_and_history(self):

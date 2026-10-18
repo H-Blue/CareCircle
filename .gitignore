@@ -1,5 +1,6 @@
 .DS_Store
 build/
+build-*/
 DerivedData/
 xcuserdata/
 *.xcuserstate
@@ -12,3 +13,4 @@ __pycache__/
 *.key
 Preview/Oracle-*.png
 linkedin-reply-assistant/
+CareCircle/LocalConnection.plist

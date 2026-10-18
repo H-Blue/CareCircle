@@ -53,16 +53,17 @@ def main():
         subprocess.run(["xcrun", "simctl", "boot", device["udid"]], check=True)
     subprocess.run(["xcrun", "simctl", "bootstatus", device["udid"], "-b"], check=True)
     log = root / "build/simulator-build.log"
+    derived = Path.home() / "Library/Developer/Xcode/DerivedData/CareCircleLocal"
     log.parent.mkdir(exist_ok=True)
     print("Building Care Circle…", flush=True)
     with log.open("w") as output:
         result = subprocess.run(["xcodebuild", "-project", str(root / "CareCircle.xcodeproj"),
                                  "-scheme", "CareCircle", "-configuration", "Debug", "-sdk", "iphonesimulator",
-                                 "-derivedDataPath", str(root / "build"), "CODE_SIGNING_ALLOWED=NO", "build"],
+                                 "-derivedDataPath", str(derived), "CODE_SIGN_IDENTITY=-", "build"],
                                 stdout=output, stderr=subprocess.STDOUT)
     if result.returncode:
         raise SystemExit(f"Build failed. Check {log}.")
-    app = root / "build/Build/Products/Debug-iphonesimulator/CareCircle.app"
+    app = derived / "Build/Products/Debug-iphonesimulator/CareCircle.app"
     subprocess.run(["xcrun", "simctl", "install", device["udid"], str(app)], check=True)
     # These values go directly to the simulator process environment, never command-line arguments or logs.
     launch_environment = os.environ.copy()

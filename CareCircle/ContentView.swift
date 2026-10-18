@@ -8,94 +8,124 @@ private enum CareStyle {
 }
 
 struct ContentView: View {
-    @State private var activeSheet: HomeSheet?
+    @StateObject private var voice = OracleVoiceSession()
+    @State private var showMenu = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .title) private var greetingSize = 32
 
-    private enum HomeSheet: String, Identifiable {
-        case menu, voice
-        var id: String { rawValue }
+    private var openingText: String {
+        switch voice.phase {
+        case .idle, .connecting: return "Hi, what can I\nhelp with?"
+        case .listening: return voice.transcript.isEmpty ? "I’m listening." : voice.transcript
+        case .thinking: return voice.transcript
+        case .speaking: return voice.reply
+        case .failed: return voice.reply.isEmpty ? "Let’s try again." : voice.reply
+        }
+    }
+
+    private var status: String {
+        switch voice.phase {
+        case .idle: return ""
+        case .connecting: return "Connecting…"
+        case .listening: return "Listening"
+        case .thinking: return "Thinking…"
+        case .speaking: return "Care Circle is speaking"
+        case .failed: return "Voice paused"
+        }
     }
 
     var body: some View {
         GeometryReader { geometry in
-            VStack(spacing: 0) {
-                HStack {
-                    Button {
-                        activeSheet = .menu
-                    } label: {
-                        VStack(alignment: .leading, spacing: 9) {
-                            ForEach(0..<3) { _ in
-                                Rectangle()
-                                    .fill(CareStyle.ink.opacity(0.8))
-                                    .frame(width: 62, height: 1)
-                            }
+            ZStack(alignment: .topLeading) {
+                if !voice.isActive {
+                Button { showMenu = true } label: {
+                    VStack(alignment: .leading, spacing: 9) {
+                        ForEach(0..<3) { _ in
+                            Rectangle().fill(CareStyle.ink.opacity(0.8)).frame(width: 62, height: 1)
                         }
-                        .frame(width: 76, height: 52)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open menu")
-                    Spacer()
+                    .frame(width: 76, height: 52)
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 24)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open menu")
+                .padding(.leading, 24)
                 .padding(.top, 14)
+                .transition(.opacity)
+                }
 
-                Spacer(minLength: 24)
-
-                Text("Hi, what can I\nhelp with?")
-                    .font(.system(size: greetingSize, weight: .regular, design: .rounded))
-                    .foregroundStyle(CareStyle.ink)
-                    .multilineTextAlignment(.leading)
-                    .lineSpacing(5)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 40)
-                    .accessibilityAddTraits(.isHeader)
-
-                Spacer(minLength: 32)
+                VStack(alignment: .leading, spacing: 18) {
+                    ScrollView {
+                        Text(openingText)
+                            .font(.system(size: voice.phase == .speaking ? min(greetingSize, 25) : greetingSize, weight: .regular, design: .rounded))
+                            .foregroundStyle(CareStyle.ink)
+                            .multilineTextAlignment(.leading)
+                            .lineSpacing(5)
+                            .frame(maxWidth: .infinity, minHeight: geometry.size.height * 0.25 - (voice.isActive ? 38 : 0), alignment: .leading)
+                            .accessibilityAddTraits(.isHeader)
+                    }
+                    .scrollIndicators(.hidden)
+                    if voice.isActive {
+                        Text(status).font(.subheadline).foregroundStyle(CareStyle.ink.opacity(0.65))
+                    }
+                }
+                .frame(width: min(geometry.size.width * 0.62, 400), height: geometry.size.height * 0.25)
+                .position(x: geometry.size.width / 2, y: geometry.size.height * (voice.isActive ? 0.24 : 0.31))
 
                 Button {
-                    activeSheet = .voice
+                    switch voice.phase {
+                    case .idle, .failed: voice.begin()
+                    case .listening: voice.finishTurn()
+                    case .speaking: voice.begin()
+                    case .connecting, .thinking: break
+                    }
                 } label: {
-                    Circle()
-                        .fill(CareStyle.burgundy)
-                        .overlay {
-                            Circle()
-                                .strokeBorder(CareStyle.rose, lineWidth: 14)
-                        }
-                        .frame(width: buttonDiameter(in: geometry.size), height: buttonDiameter(in: geometry.size))
-                        .contentShape(Circle())
+                    ZStack {
+                        Circle().fill(CareStyle.rose)
+                            .scaleEffect(reduceMotion ? 1 : 1 + voice.treble * 0.10)
+                        Circle().fill(CareStyle.burgundy)
+                            .scaleEffect(reduceMotion ? 0.82 : 0.82 + voice.bass * 0.11)
+                    }
+                    .frame(width: diameter(geometry.size), height: diameter(geometry.size))
+                    .contentShape(Circle())
                 }
-                .buttonStyle(SpeakButtonStyle())
-                .accessibilityLabel("Speak to Care Circle")
-                .accessibilityHint("Opens a conversation with Care Circle")
+                .buttonStyle(.plain)
+                .accessibilityLabel(voice.phase == .listening ? "Finish speaking" : "Speak to Care Circle")
+                .accessibilityHint("Starts Oracle voice. Tap again while listening to finish your message.")
+                .position(x: geometry.size.width / 2, y: geometry.size.height * (voice.isActive ? 0.59 : 0.68))
+                .animation(reduceMotion ? nil : .spring(response: 0.20, dampingFraction: 0.75), value: voice.bass)
+                .animation(reduceMotion ? nil : .spring(response: 0.20, dampingFraction: 0.75), value: voice.treble)
 
-                Spacer(minLength: 36)
+                if voice.isActive {
+                    VStack(spacing: 16) {
+                        if let error = voice.error {
+                            Text(error).font(.callout).multilineTextAlignment(.center).foregroundStyle(CareStyle.ink)
+                        } else {
+                            Text(voice.phase == .listening ? "Pause when you’re done, or tap the circle." : "")
+                                .font(.footnote).foregroundStyle(CareStyle.ink.opacity(0.65))
+                        }
+                        Button("End conversation") { voice.end() }
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(CareStyle.burgundy)
+                            .padding(.vertical, 12)
+                        Text("Voice is processed by Oracle while listening.")
+                            .font(.caption).foregroundStyle(CareStyle.ink.opacity(0.65))
+                    }
+                    .padding(.horizontal, 28)
+                    .frame(width: geometry.size.width)
+                    .position(x: geometry.size.width / 2, y: geometry.size.height * 0.86)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: voice.isActive)
         }
         .background(CareStyle.cream.ignoresSafeArea())
-        .sheet(item: $activeSheet) { sheet in
-            switch sheet {
-            case .menu:
-                MenuSheet()
-            case .voice:
-                ConversationView()
-            }
-        }
+        .sheet(isPresented: $showMenu) { MenuSheet() }
+        .onDisappear { voice.end() }
     }
 
-    private func buttonDiameter(in size: CGSize) -> CGFloat {
-        min(180, max(120, min(size.width * 0.48, size.height * 0.25)))
-    }
-}
-
-private struct SpeakButtonStyle: ButtonStyle {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.95 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: configuration.isPressed)
+    private func diameter(_ size: CGSize) -> CGFloat {
+        min(voice.isActive ? 220 : 180, size.width * (voice.isActive ? 0.57 : 0.48), size.height * 0.34)
     }
 }
 
@@ -127,7 +157,7 @@ private struct MenuSheet: View {
                     }
                     .buttonStyle(.plain)
 
-                    Text("EARLY PREVIEW")
+                    Text("YOUR CARE CIRCLE")
                         .font(.caption.weight(.semibold))
                         .tracking(2)
                         .foregroundStyle(.secondary)

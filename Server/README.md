@@ -38,15 +38,17 @@ Server/.venv/bin/python Server/server.py
 
 In the **iPhone simulator**, open the app's menu > **AI connection**, enter `http://localhost:8787` and your app connection token, then **Save and check connection**. This checks the bridge; send a simple non-sensitive message to verify Oracle inference separately. The app keeps the app token in the iOS Keychain.
 
-On a **physical iPhone**, use an HTTPS backend address with a valid certificate. The app requires HTTPS outside the simulator. Do not use `localhost` on the phone, because that refers to the phone itself. For a first local demo, use the simulator. A production deployment needs a managed HTTPS service, per-user authentication, rate limits, request size and concurrency limits at the proxy, and scoped workload identity; do not expose this development HTTP server directly to the internet.
+On a **physical iPhone**, use the [Oracle HTTPS deployment](Cloud/README.md). The app requires HTTPS outside the simulator. `Server/configure_device.py` creates a private local Debug connection profile after deployment; rerun the app from Xcode to install it. The cloud server uses its instance identity rather than a personal Oracle signing key. Add per-user authentication before distributing a multi-user production app.
 
 ## App behavior
 
-- Tap the burgundy home button to open a conversation.
-- Speak performs on-device English transcription when supported. Review the text and tap Send to send it to Oracle.
-- Typed messages are supported as a fallback. Replies can be read aloud by iOS.
+- Tap the burgundy home button to enter voice mode in place; the menu disappears and the circle lifts.
+- The center responds to microphone bass energy; the outer layer responds to treble energy. Reduce Motion keeps both layers still.
+- Oracle realtime Speech transcribes your voice. Pause, or tap the circle again, to finish the utterance.
+- Oracle Generative AI answers, Oracle TTS reads the reply, and listening resumes. No third-party voice provider or Apple speech-recognition service is used.
 - Recent conversation context is sent with each request. No patient records or appointments are integrated.
-- Closing the conversation clears its app memory. No analytics or conversation payload logs are added by this bridge.
+- Ending the conversation clears its app memory and stops the microphone. Backgrounding or an audio interruption also ends the session. No analytics or conversation payload logs are added by this bridge.
+- Doctor-visit recording and retrieval is a separate future mode; normal voice conversations do not create saved recordings.
 - The home greeting remains local text; account setup and a successful live request are still required for AI replies.
 
 ## Verify

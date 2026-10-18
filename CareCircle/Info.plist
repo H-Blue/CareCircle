@@ -3,9 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Care Circle uses your microphone when you choose to dictate a message.</string>
-    <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Care Circle transcribes your voice on this device so you can review and send a message.</string>
+    <string>Care Circle streams your voice to Oracle while listening, so the assistant can respond. End the conversation to stop the microphone.</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSExceptionDomains</key>
