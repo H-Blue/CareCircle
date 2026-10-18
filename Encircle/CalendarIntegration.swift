@@ -568,15 +568,7 @@ struct SMSConsentView: View {
     var body: some View {
         Form {
             if let info {
-                Section {
-                    Text("Appointment & transport texts").font(.title3)
-                    Text(info.disclosure).font(.callout).accessibilityIdentifier("SMS disclosure")
-                    HStack {
-                        Link("SMS Terms", destination: info.termsURL)
-                        Spacer()
-                        Link("Privacy Notice", destination: info.privacyURL)
-                    }.font(.callout)
-                }
+                disclosureSection(info)
                 Section {
                     TextField("Your name", text: $name)
                         .textContentType(.name).focused($editing, equals: "name")
@@ -625,6 +617,15 @@ struct SMSConsentView: View {
                 Button("Load SMS preferences") { Task { await load() } }.disabled(busy)
                 if busy { ProgressView("Loading SMS preferences…") }
             }
+            Section {
+                ForEach(SMSPolicy.allCases) { policy in
+                    NavigationLink(policy.title) { SMSPolicyView(policy: policy) }
+                }
+            } header: {
+                Text("Privacy & terms")
+            } footer: {
+                Text("Read these documents here, or copy their public URLs for Twilio verification. They are available even when the consent service is offline.")
+            }
         }
         .scrollContentBackground(.hidden)
         .background(cream.ignoresSafeArea())
@@ -634,6 +635,14 @@ struct SMSConsentView: View {
             ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { editing = nil } }
         }
         .task { await load() }
+    }
+    private func disclosureSection(_ info: SMSConsentInfo) -> some View {
+        Section {
+            Text("Appointment & transport texts").font(.title3)
+            Text(info.disclosure).font(.callout).accessibilityIdentifier("SMS disclosure")
+            Text("Read the Privacy Policy and Terms & Conditions below before agreeing.")
+                .font(.callout)
+        }
     }
     private func load() async {
         busy = true; defer { busy = false }
@@ -655,5 +664,62 @@ struct SMSConsentView: View {
             agreed = false
             status = action == "accept" ? "Your SMS consent is saved. Texts can begin once the sender is approved and your number is eligible." : "SMS consent withdrawn. Future queued texts are suppressed."
         } catch { self.error = error.localizedDescription }
+    }
+}
+
+private enum SMSPolicy: String, CaseIterable, Identifiable {
+    case privacy = "SMSPrivacy", terms = "SMSTerms"
+    var id: String { rawValue }
+    var title: String { self == .privacy ? "Privacy Policy" : "Terms & Conditions" }
+    var publicURL: URL { URL(string: "https://github.com/H-Blue/Encircle/blob/main/Docs/" + rawValue + ".md")! }
+    var paragraphs: [String] {
+        guard let file = Bundle.main.url(forResource: rawValue, withExtension: "md"),
+              let text = try? String(contentsOf: file, encoding: .utf8) else { return [] }
+        return text.components(separatedBy: "\n\n").filter { !$0.isEmpty }
+    }
+}
+
+private struct SMSPolicyView: View {
+    let policy: SMSPolicy
+    @State private var copied = false
+    private let cream = Color(red: 0.89, green: 0.85, blue: 0.74)
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(policy.title + " URL").font(.headline)
+                    Text(policy.publicURL.absoluteString)
+                        .font(.footnote).textSelection(.enabled)
+                    HStack {
+                        Button(copied ? "URL copied" : "Copy URL") {
+                            UIPasteboard.general.url = policy.publicURL
+                            copied = true
+                        }.accessibilityIdentifier("Copy " + policy.title + " URL")
+                        Spacer()
+                        Link("Open public page", destination: policy.publicURL)
+                    }.font(.callout)
+                }
+                Divider()
+                ForEach(Array(policy.paragraphs.enumerated()), id: \.offset) { _, paragraph in
+                    if paragraph.hasPrefix("# ") {
+                        Text(String(paragraph.dropFirst(2))).font(.title2)
+                    } else if paragraph.hasPrefix("## ") {
+                        Text(String(paragraph.dropFirst(3))).font(.headline)
+                    } else {
+                        Text((try? AttributedString(markdown: paragraph,
+                            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace),
+                            baseURL: policy.publicURL)) ?? AttributedString(paragraph))
+                            .textSelection(.enabled)
+                    }
+                }
+                if policy.paragraphs.isEmpty {
+                    Text("Open the public page to read this document.")
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
+        }
+        .background(cream.ignoresSafeArea())
+        .navigationTitle(policy.title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

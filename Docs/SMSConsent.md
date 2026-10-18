@@ -16,6 +16,8 @@ Checkbox label: **I agree to receive Encircle appointment and transport texts.**
 
 [SMS Program Terms](SMSTerms.md) · [SMS Privacy Notice](SMSPrivacy.md)
 
+These documents are also readable inside the consent screen under **Privacy & terms**. Each page includes **Copy URL** and **Open public page** controls. For Twilio’s **Privacy Policy URL**, use the public privacy-notice link above; for **Terms & Conditions URL**, use the public program-terms link. The in-app copies are bundled with the app and remain available offline.
+
 ## Actual iPhone screenshots
 
 This shows the running app with blank fields and an unchecked consent box. No subscriber data is published.

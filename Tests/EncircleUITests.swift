@@ -29,6 +29,19 @@ final class EncircleUITests: XCTestCase {
         checkbox.tap()
         XCTAssertEqual(checkbox.value as? String, "Unchecked")
         // Deliberately do not submit: a UI test must not fabricate the owner's consent.
+        for title in ["Privacy Policy", "Terms & Conditions"] {
+            for _ in 0..<5 {
+                if app.buttons[title].firstMatch.isHittable { break }
+                app.swipeUp()
+            }
+            app.buttons[title].firstMatch.tap()
+            let copy = app.buttons["Copy " + title + " URL"]
+            XCTAssertTrue(copy.waitForExistence(timeout: 5))
+            XCTAssertTrue(app.staticTexts[title == "Privacy Policy" ? "Encircle SMS Privacy Notice" : "Encircle SMS Program Terms"].exists)
+            copy.tap()
+            XCTAssertEqual(copy.label, "URL copied")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+        }
     }
     func testCoordinatorShowsCloudPlansAndSimulationMode() {
         let app = XCUIApplication()
