@@ -4,6 +4,7 @@ State stays outside Git. No personal Oracle signing key is uploaded to the VM.
 """
 import base64
 import argparse
+import gzip
 import json
 import os
 from pathlib import Path
@@ -22,7 +23,7 @@ STATE_PATH = Path.home() / ".oci/carecircle/cloud-state.json"
 def cloud_init(compartment):
     token = os.environ["CARECIRCLE_APP_TOKEN"]
     environment = f"OCI_AUTH=instance_principal\nOCI_REGION=us-chicago-1\nOCI_COMPARTMENT_ID={compartment}\nOCI_MODEL_ID={os.environ['OCI_MODEL_ID']}\nOCI_CHAT_FORMAT=COHERE\nCARECIRCLE_APP_TOKEN={token}\nCARECIRCLE_HOST=127.0.0.1\nCARECIRCLE_PORT=8788\n"
-    for name in ("ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID"):
+    for name in ("ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER", "TWILIO_ALLOWED_NUMBERS", "TWILIO_SMS_APPROVED", "TWILIO_AUTO_ENABLE_DEMO", "TWILIO_PHONE_NUMBER_SID", "COORDINATOR_NAMESPACE", "COORDINATOR_BUCKET", "CARECIRCLE_PUBLIC_URL"):
         if os.environ.get(name):
             value = os.environ[name]
             if any(character in value for character in "\r\n\"\\%$"):
@@ -49,12 +50,18 @@ TasksMax=64
 WantedBy=multi-user.target
 """
     nginx = """limit_req_zone $binary_remote_addr zone=carecircle:10m rate=2r/s;
+limit_req_zone $binary_remote_addr zone=carecircle_webhooks:10m rate=10r/s;
 server {
  listen 8787;
  server_tokens off;
  access_log off;
  error_log /dev/null crit;
  client_max_body_size 64k;
+ location /twilio/ {
+  limit_req zone=carecircle_webhooks burst=30 nodelay;
+  proxy_pass http://127.0.0.1:8788;
+  proxy_read_timeout 70s;
+ }
  location / {
   limit_req zone=carecircle burst=10 nodelay;
   proxy_pass http://127.0.0.1:8788;
@@ -64,6 +71,8 @@ server {
 }
 """
     files = [("/opt/carecircle/server.py", (ROOT / "Server/server.py").read_text(), "0644"),
+             ("/opt/carecircle/coordinator.py", (ROOT / "Server/coordinator.py").read_text(), "0644"),
+             ("/opt/carecircle/requirements.txt", (ROOT / "Server/requirements.txt").read_text(), "0644"),
              ("/opt/carecircle/fixtures/appointments.json", (ROOT / "Server/fixtures/appointments.json").read_text(), "0644"),
              ("/etc/carecircle.env", environment, "0600"),
              ("/etc/systemd/system/carecircle.service", service, "0644"),
@@ -77,7 +86,7 @@ server {
             "iptables -I INPUT 1 -s 10.42.0.0/24 -p tcp --dport 8787 -j ACCEPT",
             "iptables-save > /etc/iptables/rules.v4",
             "python3 -m venv /opt/carecircle/venv",
-            "/opt/carecircle/venv/bin/pip install oci==2.188.0",
+            "/opt/carecircle/venv/bin/pip install -r /opt/carecircle/requirements.txt",
             "rm -f /etc/nginx/sites-enabled/default",
             "systemctl daemon-reload",
             "systemctl enable --now carecircle",
@@ -85,13 +94,14 @@ server {
             "systemctl restart nginx",
         ],
     }
-    return base64.b64encode(("#cloud-config\n" + json.dumps(config)).encode()).decode()
+    return base64.b64encode(gzip.compress(("#cloud-config\n" + json.dumps(config)).encode(), mtime=0)).decode()
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--paid-small-server", action="store_true", help="Explicitly select the approved E5 burstable server instead of free A1")
     parser.add_argument("--replace-server", action="store_true", help="Replace the stateless backend with the current source, preserving the HTTPS gateway")
+    parser.add_argument("--prepare-only", action="store_true", help="Prepare private persistent storage and permissions without replacing the server")
     args = parser.parse_args()
     shape = "VM.Standard.E5.Flex" if args.paid_small_server else "VM.Standard.A1.Flex"
     load_environment(ROOT / "Server/.env")
@@ -103,14 +113,6 @@ def main():
     gateway = oci.apigateway.GatewayClient(config)
     deployment = oci.apigateway.DeploymentClient(config)
     models = oci.core.models
-
-    if args.replace_server and state.get("instance"):
-        print("Replacing the stateless backend; saved visits remain on the iPhone.", flush=True)
-        compute.terminate_instance(state["instance"], preserve_boot_volume=False)
-        oci.wait_until(compute, compute.get_instance(state["instance"]), "lifecycle_state", "TERMINATED", max_wait_seconds=600)
-        state.pop("instance")
-        STATE_PATH.write_text(json.dumps(state, indent=2))
-        STATE_PATH.chmod(0o600)
 
     def save(key, value):
         state[key] = value
@@ -161,6 +163,41 @@ def main():
             f"Allow dynamic-group id {group} to use generative-ai-chat in compartment id {compartment}",
             f"Allow dynamic-group id {group} to manage ai-service-speech-family in compartment id {compartment}",
         ])))
+    storage = oci.object_storage.ObjectStorageClient(config)
+    namespace = state.get("coordinator_namespace") or save("coordinator_namespace", storage.get_namespace().data)
+    bucket = state.get("coordinator_bucket") or "carecircle-coordinator"
+    try:
+        bucket_data = storage.get_bucket(namespace, bucket).data
+        if bucket_data.public_access_type != "NoPublicAccess" or bucket_data.versioning != "Enabled":
+            raise RuntimeError("Coordinator bucket must be private with versioning enabled")
+    except oci.exceptions.ServiceError as error:
+        if error.status != 404: raise
+        storage.create_bucket(namespace, oci.object_storage.models.CreateBucketDetails(
+            compartment_id=compartment, name=bucket, public_access_type="NoPublicAccess", versioning="Enabled"))
+    save("coordinator_bucket", bucket)
+    statement = (f"Allow dynamic-group id {group} to manage objects in compartment id {compartment} "
+                 "where all {target.bucket.name='" + bucket + "', target.object.name='coordinator/state.json', "
+                 "any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}")
+    existing = identity.get_policy(state["policy"]).data
+    if statement not in existing.statements:
+        identity.update_policy(state["policy"], oci.identity.models.UpdatePolicyDetails(statements=existing.statements + [statement]))
+    os.environ["COORDINATOR_NAMESPACE"] = namespace
+    os.environ["COORDINATOR_BUCKET"] = bucket
+    os.environ["CARECIRCLE_PUBLIC_URL"] = state.get("endpoint", os.environ.get("CARECIRCLE_PUBLIC_URL", ""))
+    if args.prepare_only:
+        print("Private versioned coordinator storage and scoped instance permissions prepared.", flush=True)
+        return
+    # Validate the complete payload before replacing the working backend.
+    bootstrap = cloud_init(compartment)
+    if len(bootstrap.encode()) > 31000:
+        raise ValueError("Compressed startup data is too large; split the package before replacing the server")
+    if args.replace_server and state.get("instance"):
+        print("Replacing the backend; coordinator state stays in private versioned storage and saved visits stay on the iPhone.", flush=True)
+        compute.terminate_instance(state["instance"], preserve_boot_volume=False)
+        oci.wait_until(compute, compute.get_instance(state["instance"]), "lifecycle_state", "TERMINATED", max_wait_seconds=600)
+        state.pop("instance")
+        STATE_PATH.write_text(json.dumps(state, indent=2))
+        STATE_PATH.chmod(0o600)
     if not state.get("instance"):
         images = compute.list_images(compartment_id=config["tenancy"], operating_system="Canonical Ubuntu",
             operating_system_version="22.04", shape=shape, sort_by="TIMECREATED", sort_order="DESC").data
@@ -176,7 +213,7 @@ def main():
                     source_details=models.InstanceSourceViaImageDetails(image_id=images[0].id, boot_volume_size_in_gbs=50),
                     create_vnic_details=models.CreateVnicDetails(subnet_id=subnet, assign_public_ip=True,
                         private_ip=state.get("private_ip"), nsg_ids=[server_nsg]),
-                    metadata={"user_data": cloud_init(compartment)},
+                    metadata={"user_data": bootstrap},
                     instance_options=models.InstanceOptions(are_legacy_imds_endpoints_disabled=True),
                 ))
                 save("instance", result.data.id)
@@ -198,13 +235,16 @@ def main():
     print("Waiting for managed HTTPS gateway…", flush=True)
     result = oci.wait_until(gateway, gateway.get_gateway(gateway_id), "lifecycle_state", "ACTIVE", max_wait_seconds=900).data
     routes = []
-    for path, methods in [("/health", ["GET"]), ("/appointments", ["GET"]), ("/chat", ["POST"]), ("/speech/session", ["POST"]), ("/speech/synthesize", ["POST"]), ("/voice/session", ["POST"])]:
+    for path, methods in [("/health", ["GET"]), ("/appointments", ["GET", "POST"]), ("/coordinator", ["GET"]),
+                          ("/coordinator/configure", ["POST"]), ("/coordinator/simulate", ["POST"]), ("/coordinator/check", ["POST"]),
+                          ("/twilio/inbound", ["POST"]), ("/twilio/status", ["POST"]),
+                          ("/chat", ["POST"]), ("/speech/session", ["POST"]), ("/speech/synthesize", ["POST"]), ("/voice/session", ["POST"])]:
         routes.append(oci.apigateway.models.ApiSpecificationRoute(path=path, methods=methods,
             backend=oci.apigateway.models.HTTPBackend(url=f"http://{private_ip}:8787{path}",
                 connect_timeout_in_seconds=10, read_timeout_in_seconds=70, send_timeout_in_seconds=10)))
     spec = oci.apigateway.models.ApiSpecification(routes=routes,
         request_policies=oci.apigateway.models.ApiSpecificationRequestPolicies(
-            rate_limiting=oci.apigateway.models.RateLimitingPolicy(rate_in_requests_per_second=2, rate_key="CLIENT_IP")))
+            rate_limiting=oci.apigateway.models.RateLimitingPolicy(rate_in_requests_per_second=20, rate_key="CLIENT_IP")))
     if state.get("deployment"):
         deployment.update_deployment(state["deployment"], oci.apigateway.models.UpdateDeploymentDetails(specification=spec))
     deployment_id = resource("deployment", lambda: deployment.create_deployment(oci.apigateway.models.CreateDeploymentDetails(

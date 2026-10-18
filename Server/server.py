@@ -189,7 +189,7 @@ class ElevenLabsVoice:
         return {"token": token}
 
 
-def make_handler(chat, token, voice=None):
+def make_handler(chat, token, voice=None, coordinator=None):
     rate_lock = threading.Lock()
     requests = []
 
@@ -223,6 +223,12 @@ def make_handler(chat, token, voice=None):
                 self.reply(401, {"error": "Connection token is incorrect."})
             elif self.path == "/health":
                 self.reply(200, {"status": "ready", "provider": "Oracle Cloud"})
+            elif self.path == "/coordinator" and coordinator is not None:
+                try: self.reply(200, coordinator.snapshot())
+                except Exception: self.reply(503, {"error": "The care coordinator is temporarily unavailable."})
+            elif self.path == "/appointments" and coordinator is not None:
+                try: self.reply(200, coordinator.feed())
+                except Exception: self.reply(503, {"error": "The scheduling feed is temporarily unavailable."})
             elif self.path == "/appointments":
                 # Synthetic scheduling feed; replace this adapter when a real scheduler is connected.
                 try:
@@ -234,11 +240,37 @@ def make_handler(chat, token, voice=None):
             else:
                 self.reply(404, {"error": "Not found."})
 
+        def twilio_webhook(self):
+            if coordinator is None or not coordinator.sender.ready:
+                self.reply(503, {"error": "Messaging is not connected."}); return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 65536 or self.headers.get("Transfer-Encoding") or self.headers.get_content_type() != "application/x-www-form-urlencoded":
+                    raise ValueError()
+                pairs = urllib.parse.parse_qsl(self.rfile.read(length).decode(), keep_blank_values=True, strict_parsing=True, max_num_fields=128)
+                if len({key for key, _ in pairs}) != len(pairs): raise ValueError()
+                params = dict(pairs)
+                if not coordinator.sender.validate(self.path, params, self.headers.get("X-Twilio-Signature", "")):
+                    self.reply(403, {"error": "Invalid messaging signature."}); return
+                route = urllib.parse.urlsplit(self.path)
+                if route.path == "/twilio/inbound":
+                    if params.get("To") != coordinator.sender.number: raise ValueError()
+                    coordinator.inbound(params.get("From", ""), params.get("Body", ""), params.get("MessageSid", ""), params.get("OptOutType"))
+                else:
+                    query = urllib.parse.parse_qs(route.query)
+                    if set(query) != {"job"} or len(query["job"]) != 1 or params.get("From") != coordinator.sender.number: raise ValueError()
+                    coordinator.callback(query["job"][0], params)
+                self.send_data(200, b'<?xml version="1.0" encoding="UTF-8"?><Response/>', "application/xml")
+            except (ValueError, UnicodeDecodeError): self.reply(400, {"error": "Invalid messaging event."})
+            except Exception: self.reply(503, {"error": "Messaging event couldn’t be saved. Please retry."})
+
         def do_POST(self):
+            if urllib.parse.urlsplit(self.path).path in ("/twilio/inbound", "/twilio/status"):
+                self.twilio_webhook(); return
             if not self.authenticated():
                 self.reply(401, {"error": "Connection token is incorrect."})
                 return
-            if self.path not in ("/chat", "/speech/session", "/speech/synthesize", "/voice/session"):
+            if self.path not in ("/chat", "/speech/session", "/speech/synthesize", "/voice/session", "/appointments", "/coordinator/configure", "/coordinator/simulate", "/coordinator/check"):
                 self.reply(404, {"error": "Not found."})
                 return
             try:
@@ -248,6 +280,7 @@ def make_handler(chat, token, voice=None):
                 if self.headers.get_content_type() != "application/json":
                     raise ValueError("Expected JSON.")
                 payload = json.loads(self.rfile.read(length))
+                if not isinstance(payload, dict): raise ValueError()
                 if self.path == "/chat":
                     messages = validate_messages(payload)
                 elif self.path == "/speech/synthesize":
@@ -264,7 +297,24 @@ def make_handler(chat, token, voice=None):
                     if len(requests) >= 30:
                         raise BusyError()
                     requests.append(now)
-                if self.path == "/chat":
+                if self.path in ("/appointments", "/coordinator/configure", "/coordinator/simulate", "/coordinator/check"):
+                    if coordinator is None:
+                        self.reply(503, {"error": "The care coordinator is not configured."}); return
+                    try:
+                        if self.path == "/appointments": result = coordinator.upsert(payload)
+                        elif self.path == "/coordinator/configure": result = coordinator.configure(payload)
+                        elif self.path == "/coordinator/check":
+                            coordinator.wake.set(); result = {"queued": True}
+                        else:
+                            state = coordinator.store.read()
+                            if state["circle"]["mode"] != "test": raise ValueError("Simulation is only available in test mode")
+                            offer = state["offers"].get(payload.get("code", ""))
+                            if not offer or payload.get("reply") not in ("YES", "NO", "CANCEL"): raise ValueError("Choose an existing request code and YES, NO or CANCEL")
+                            import uuid
+                            result = coordinator.inbound(offer["phone"], payload["reply"] + " " + offer["code"], "simulation-" + uuid.uuid4().hex)
+                        self.reply(200, result)
+                    except (ValueError, TypeError, KeyError): self.reply(400, {"error": "Invalid coordinator request. Check the appointment, mode, and consent details."})
+                elif self.path == "/chat":
                     self.reply(200, {"reply": chat.chat(messages)})
                 elif self.path == "/voice/session":
                     if voice is None:
@@ -302,13 +352,21 @@ def main():
     chat = OracleChat()
     host = os.environ.get("CARECIRCLE_HOST", "127.0.0.1")
     port = int(os.environ.get("CARECIRCLE_PORT", "8787"))
-    server = ThreadingHTTPServer((host, port), make_handler(chat, token, ElevenLabsVoice()))
+    coordinator = None
+    if os.environ.get("COORDINATOR_BUCKET"):
+        from coordinator import Coordinator, OracleState
+        coordinator = Coordinator(OracleState(), planner=chat)
+        coordinator.seed(json.loads((Path(__file__).parent / "fixtures/appointments.json").read_text()))
+        coordinator.start()
+    server = ThreadingHTTPServer((host, port), make_handler(chat, token, ElevenLabsVoice(), coordinator))
     print(f"Care Circle development bridge listening on {host}:{port}. No conversation logging.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if coordinator is not None:
+            coordinator.stop.set(); coordinator.wake.set()
         server.server_close()
 
 

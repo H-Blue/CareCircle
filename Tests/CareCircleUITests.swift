@@ -1,6 +1,19 @@
 import XCTest
 
 final class CareCircleUITests: XCTestCase {
+    func testCoordinatorShowsCloudPlansAndSimulationMode() {
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["Open menu"].tap()
+        app.buttons["Apple Calendar & transport"].tap()
+        app.buttons["Care coordinator"].tap()
+        XCTAssertTrue(app.staticTexts["Terraica"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["Demo simulation · no texts sent"].exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "To appointment:")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Ride home:")).firstMatch.exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "CareCircle-coordinator-cloud"; screenshot.lifetime = .keepAlways; add(screenshot)
+    }
     func testCalendarSyncAndTransportNotesPersistWithoutDuplicates() {
         let app = XCUIApplication()
         app.launchArguments = ["--test-calendar-sync"]

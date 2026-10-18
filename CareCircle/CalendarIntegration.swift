@@ -9,6 +9,7 @@ struct ScheduledAppointment: Codable, Identifiable {
     let end: Date
     let timeZone: String
     let isTestData: Bool
+    var coordination: AppointmentCoordination?
     var dateLabel: String {
         start.formatted(Date.FormatStyle(date: .long, time: .omitted, timeZone: TimeZone(identifier: timeZone)!))
     }
@@ -17,8 +18,36 @@ struct ScheduledAppointment: Codable, Identifiable {
         return start.formatted(format) + " – " + end.formatted(format)
     }
     enum CodingKeys: String, CodingKey {
-        case id, title, status, start, end
+        case id, title, status, start, end, coordination
         case timeZone = "time_zone", isTestData = "is_test_data"
+    }
+}
+
+struct CoordinatedRide: Codable {
+    let state: String
+    let driver: String?
+    let notTaking: [String]?
+    enum CodingKeys: String, CodingKey { case state, driver; case notTaking = "not_taking" }
+    var label: String {
+        if let driver { return state == "confirmed" ? "Confirmed: " + driver : "Check arrangement with " + driver }
+        switch state {
+        case "awaiting_reply": return "Waiting for a reply"
+        case "request_queued": return "Request queued"
+        case "needs_attention": return "Leader follow-up needed"
+        case "needs_review": return "Please review delivery or coverage"
+        default: return "Not assigned"
+        }
+    }
+}
+
+struct AppointmentCoordination: Codable {
+    let outbound: CoordinatedRide
+    let `return`: CoordinatedRide
+    var notes: String {
+        "Cloud transport plan\nTo appointment: " + outbound.label +
+        "\nNot taking outbound: " + ((outbound.notTaking ?? []).isEmpty ? "None recorded" : outbound.notTaking!.joined(separator: ", ")) +
+        "\nRide home: " + self.return.label +
+        "\nNot taking return: " + ((self.return.notTaking ?? []).isEmpty ? "None recorded" : self.return.notTaking!.joined(separator: ", "))
     }
 }
 
@@ -109,6 +138,19 @@ final class CareCalendarStore: ObservableObject {
 
     func plan(for appointment: ScheduledAppointment) -> TransportPlan {
         preferences.transport[appointment.id] ?? TransportPlan()
+    }
+
+    private func transportNotes(for appointment: ScheduledAppointment) -> String {
+        let local = plan(for: appointment)
+        guard let cloud = appointment.coordination else {
+            return local.notes(recipient: preferences.recipient, demo: appointment.isTestData)
+        }
+        var text = "Care recipient: \(preferences.recipient)\n" + cloud.notes
+        if !local.taking.isEmpty || !local.notTaking.isEmpty {
+            text += "\nLocal notes (separate from SMS confirmations)\nTaking: \(local.taking.isEmpty ? "Not recorded" : local.taking)\nNot taking: \(local.notTaking.isEmpty ? "Not recorded" : local.notTaking)"
+        }
+        if appointment.isTestData { text += "\nDemo appointment — synthetic scheduling data; confirmations may be simulated." }
+        return text
     }
 
     func load() async {
@@ -220,7 +262,7 @@ final class CareCalendarStore: ObservableObject {
             event.timeZone = TimeZone(identifier: appointment.timeZone)
             event.url = marker
             let begin = "[Care Circle]", end = "[/Care Circle]"
-            let block = begin + "\n" + plan(for: appointment).notes(recipient: preferences.recipient, demo: appointment.isTestData) + "\n" + end
+            let block = begin + "\n" + transportNotes(for: appointment) + "\n" + end
             let previous = event.notes ?? ""
             if let first = previous.range(of: begin), let last = previous.range(of: end, range: first.upperBound..<previous.endIndex) {
                 event.notes = String(previous[..<first.lowerBound]) + block + String(previous[last.upperBound...])
@@ -232,7 +274,7 @@ final class CareCalendarStore: ObservableObject {
             if ProcessInfo.processInfo.arguments.contains("--test-calendar-sync") {
                 precondition(events.events(matching: events.predicateForEvents(withStart: appointment.start.addingTimeInterval(-1), end: appointment.end.addingTimeInterval(1), calendars: [calendar])).filter { $0.url == marker }.count == 1)
                 let stored = events.event(withIdentifier: event.eventIdentifier)
-                precondition(stored?.notes?.contains(plan(for: appointment).notes(recipient: preferences.recipient, demo: appointment.isTestData)) == true)
+                precondition(stored?.notes?.contains(transportNotes(for: appointment)) == true)
                 precondition(stored?.startDate == appointment.start && stored?.endDate == appointment.end)
             }
             #endif
@@ -251,7 +293,11 @@ struct CalendarIntegrationView: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("Care recipient") {
+                NavigationLink("Care coordinator") { CareCoordinatorView(calendar: store) }
+            } footer: { Text("See requests, confirmed rides, and anything needing your attention.") }
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Care recipient").font(.caption).foregroundStyle(.secondary)
                     TextField("Name", text: $recipient).accessibilityIdentifier("Care recipient name")
                 }
                 if store.hasAccess {
@@ -286,13 +332,18 @@ struct CalendarIntegrationView: View {
                             Text(appointment.dateLabel)
                             Text(appointment.timeLabel)
                                 .font(.caption).foregroundStyle(.secondary)
-                            let plan = store.plan(for: appointment)
-                            Text(plan.taking.isEmpty ? "Transport not assigned" : "Taking: " + plan.taking).font(.caption)
+                            if let rides = appointment.coordination {
+                                Text("To appointment: " + rides.outbound.label).font(.caption)
+                                Text("Ride home: " + rides.return.label).font(.caption)
+                            } else {
+                                let plan = store.plan(for: appointment)
+                                Text(plan.taking.isEmpty ? "Transport not assigned" : "Taking: " + plan.taking).font(.caption)
+                            }
                         }
                     }.accessibilityIdentifier("scheduled-" + appointment.id)
                 }
             } header: { Text(store.isDemo ? "Demo appointments · Chicago time" : "Upcoming appointments") } footer: {
-                Text("Tap an appointment to record who is taking them and who isn’t. Names stay on this phone and in your selected calendar; family members aren’t notified automatically.")
+                Text("Cloud confirmations are tracked separately for each direction. Local notes stay on this phone and in your selected calendar. Calendar notes refresh when Care Circle is open; they don’t refresh while the app is closed.")
             }
         }
         .scrollContentBackground(.hidden)
@@ -316,14 +367,20 @@ private struct TransportPlanView: View {
         Form {
             Section {
                 Text(appointment.dateLabel)
-                LabeledContent("Taking") {
+                if let rides = appointment.coordination {
+                    Text("To appointment: " + rides.outbound.label)
+                    Text("Ride home: " + rides.return.label)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Taking").font(.caption).foregroundStyle(.secondary)
                     TextField("Names", text: $plan.taking).accessibilityIdentifier("Taking them")
                 }
-                LabeledContent("Not taking") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Not taking").font(.caption).foregroundStyle(.secondary)
                     TextField("Names", text: $plan.notTaking).accessibilityIdentifier("Not taking them")
                 }
-            } header: { Text("Transport") } footer: {
-                Text("Separate multiple names with commas. Leave Taking blank if no one has agreed yet. Only enter confirmed arrangements; this doesn’t send invitations.")
+            } header: { Text("Local transport notes") } footer: {
+                Text("Separate multiple names with commas. These notes don’t change cloud confirmations or send invitations. Confirmed SMS arrangements appear above and in calendar notes.")
             }
             Button("Save transport details") { Task { await store.savePlan(plan, for: appointment) } }.disabled(store.busy)
             if let error = store.error { Text(error).foregroundStyle(.red) }
@@ -334,5 +391,132 @@ private struct TransportPlanView: View {
         .navigationTitle("Who’s taking them?")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { plan = store.plan(for: appointment) }
+    }
+}
+
+private struct CoordinatorSnapshot: Decodable {
+    let mode: String
+    let patientName: String
+    let smsApproved: Bool
+    let appointments: [Appointment]
+    let messages: [Message]
+    enum CodingKeys: String, CodingKey {
+        case mode, appointments, messages
+        case patientName = "patient_name", smsApproved = "sms_approved"
+    }
+    struct Appointment: Decodable, Identifiable {
+        let id: String
+        let start: Date
+        let trips: AppointmentCoordination
+        let aiReview: Review?
+        enum CodingKeys: String, CodingKey { case id, start, trips; case aiReview = "ai_review" }
+    }
+    struct Review: Decodable { let source: String; let note: String }
+    struct Message: Decodable, Identifiable {
+        let id: String
+        let kind: String
+        let state: String
+        let body: String
+        let code: String?
+        let blockedReason: String?
+        enum CodingKeys: String, CodingKey { case id, kind, state, body, code; case blockedReason = "blocked_reason" }
+    }
+}
+
+private struct CareCoordinatorView: View {
+    @ObservedObject var calendar: CareCalendarStore
+    @State private var snapshot: CoordinatorSnapshot?
+    @State private var previousData: Data?
+    @State private var error: String?
+    @State private var busy = false
+    private let cream = Color(red: 0.89, green: 0.85, blue: 0.74)
+    private var api: CareCircleAPI {
+        CareCircleAPI(address: UserDefaults.standard.string(forKey: "careCircleServerAddress") ?? "", token: ConnectionToken.read())
+    }
+    var body: some View {
+        Form {
+            if let snapshot {
+                Section {
+                    Text(snapshot.patientName).font(.title2)
+                    Text(snapshot.mode == "live" ? "Coordinating by text" : snapshot.mode == "paused" ? "Coordination paused" : "Demo simulation · no texts sent")
+                    if !snapshot.smsApproved {
+                        Text("Waiting for Twilio sender approval and trial recipient verification. The authorized demo can activate automatically after both are ready.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    Button("Check for updates") { Task { await check() } }.disabled(busy)
+                } footer: {
+                    Text("The coordinator runs on Oracle while the app is closed. Each direction needs a separate confirmation. This demo can text only your approved number, up to 20 outgoing messages per day.")
+                }
+                ForEach(snapshot.appointments) { appointment in
+                    Section {
+                        Text("To appointment: " + appointment.trips.outbound.label)
+                        Text("Ride home: " + appointment.trips.return.label)
+                        if let review = appointment.aiReview {
+                            Text(review.note).font(.footnote).foregroundStyle(.secondary)
+                            Text("Initial review · " + review.source).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    } header: {
+                        Text(appointment.start.formatted(Date.FormatStyle(date: .long, time: .shortened, timeZone: TimeZone(identifier: "America/Chicago")!)))
+                    }
+                }
+                Section {
+                    ForEach(snapshot.messages.reversed()) { message in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(message.body).font(.callout)
+                            Text(message.state == "simulated" ? "Simulated · no text sent" : message.state.replacingOccurrences(of: "_", with: " ").capitalized)
+                                .font(.caption).foregroundStyle(.secondary)
+                            if let reason = message.blockedReason { Text(reason).font(.caption).foregroundStyle(.red) }
+                            if snapshot.mode == "test", message.kind == "request", message.state == "simulated", let code = message.code {
+                                HStack {
+                                    Button("Simulate acceptance") { Task { await simulate(code, reply: "YES") } }
+                                    Button("Simulate decline") { Task { await simulate(code, reply: "NO") } }
+                                }.buttonStyle(.borderless).font(.caption).disabled(busy)
+                            }
+                        }
+                    }
+                } header: { Text("Recent messages") } footer: {
+                    Text("A delivered message is not a confirmed ride. Vague replies, failed messages, and uncertain delivery require follow-up.")
+                }
+            } else { ProgressView("Loading coordinator…") }
+            if let error { Text(error).foregroundStyle(.red) }
+        }
+        .scrollContentBackground(.hidden)
+        .background(cream.ignoresSafeArea())
+        .navigationTitle("Care coordinator")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            while !Task.isCancelled {
+                await load()
+                do { try await Task.sleep(for: .seconds(15)) } catch { break }
+            }
+        }
+    }
+    private func load() async {
+        do {
+            let data = try await api.request("coordinator")
+            let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+            snapshot = try decoder.decode(CoordinatorSnapshot.self, from: data)
+            error = nil
+            if previousData != data {
+                previousData = data
+                await calendar.refreshIfEnabled()
+            }
+        } catch is CancellationError { }
+        catch { self.error = error.localizedDescription }
+    }
+    private func check() async {
+        busy = true; defer { busy = false }
+        do { _ = try await api.request("coordinator/check", post: true); await load() }
+        catch { self.error = error.localizedDescription }
+    }
+    private func simulate(_ code: String, reply: String) async {
+        busy = true; defer { busy = false }
+        do {
+            let data = try await api.request("coordinator/simulate", payload: ["code": code, "reply": reply])
+            struct Result: Decodable { let result: String }
+            let result = try JSONDecoder().decode(Result.self, from: data).result
+            await load()
+            if !["confirmed", "declined"].contains(result) { error = "This demo request is no longer waiting for a reply. Current status: " + result.replacingOccurrences(of: "_", with: " ") }
+        } catch { self.error = error.localizedDescription }
     }
 }

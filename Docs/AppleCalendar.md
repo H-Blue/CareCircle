@@ -29,3 +29,7 @@ The care recipient’s display name, transport names, cached feed and event mapp
 This is one care-recipient connection per app installation. Transport entry is local to this phone; there is no family sign-in, shared assignment database, availability detection, automatic acceptance, or messaging workflow yet. A shared Apple calendar can display its events to existing members, but the app does not create or administer those memberships. Removing the app does not remove previously saved calendar events.
 
 Validation includes a real EventKit integration test on the iPhone simulator: cloud schedule retrieval, permission handling, native saves, exact start/end and notes checks, repeat-sync duplicate checks, transport editing, and persistence/re-sync after relaunch. A physical phone is still needed to verify the user’s particular iCloud or other calendar account.
+
+## Cloud transport confirmations
+
+The [Oracle coordinator](CareCoordinator.md) now adds separate outbound and return coverage to the appointment feed. Calendar notes include confirmed driver names, declines, and waiting/review statuses. Manual names remain clearly labeled local notes, separate from SMS confirmations. Synthetic appointment notes explicitly allow simulated confirmations. Cloud coordination runs while the app is closed; Apple Calendar notes refresh only when Care Circle runs, including polling while the coordinator screen is visible.

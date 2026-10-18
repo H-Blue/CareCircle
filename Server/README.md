@@ -42,18 +42,11 @@ On a **physical iPhone**, use the [Oracle HTTPS deployment](Cloud/README.md). Th
 
 ## App behavior
 
-- Tap the burgundy home button to enter voice mode in place; the menu disappears and the circle lifts.
-- The center responds to microphone bass energy; the outer layer responds to treble energy. Reduce Motion keeps both layers still.
-- Oracle realtime Speech transcribes your voice. Pause, or tap the circle again, to finish the utterance.
-- Oracle Generative AI answers, Oracle TTS reads the reply, and listening resumes. No third-party voice provider or Apple speech-recognition service is used.
-- Recent conversation context is sent with each request. No patient records or appointments are integrated.
-- Ending the conversation clears its app memory and stops the microphone. Backgrounding or an audio interruption also ends the session. No analytics or conversation payload logs are added by this bridge.
-- Doctor-visit recording and retrieval is a separate future mode; normal voice conversations do not create saved recordings.
-- The home greeting remains local text; account setup and a successful live request are still required for AI replies.
+The iPhone uses ElevenLabs for live conversation, Oracle realtime Speech for doctor-visit transcripts, and Oracle chat for short grounded summaries. Visit recordings remain on the phone. See the [app overview](../README.md) and [persistent coordinator](../Docs/CareCoordinator.md) for current behavior.
 
 ## Mock appointments
 
-Authenticated `GET /appointments` returns the three synthetic 2026 appointment slots hosted on Oracle. See [feed details](../Docs/MockAppointments.md) for dates, timezone and response fields. This is a development scheduling feed; it does not connect to Epic, send messages, or create calendar events.
+Authenticated `GET /appointments` returns the three synthetic 2026 appointment slots hosted on Oracle. See [feed details](../Docs/MockAppointments.md) for dates, timezone and response fields. This is a persistent development scheduling feed; Epic is not connected. Creating/updating an appointment wakes the transport coordinator. The app can sync its feed and separate direction confirmations into Apple Calendar.
 
 ## Verify
 
@@ -69,7 +62,7 @@ Oracle references: [SDK configuration](https://docs.oracle.com/en-us/iaas/Conten
 
 ## ElevenLabs conversation sessions
 
-For the live voice agent, add a restricted `ELEVENLABS_API_KEY` to the private `Server/.env` and run `Server/.venv/bin/python Server/configure_elevenlabs.py`. This creates/updates a private Care Circle agent and saves `ELEVENLABS_AGENT_ID` to the same ignored file. The setup utility uses the standard library; the production backend requires only the existing OCI SDK. The key needs ElevenAgents management and voice-read access for setup. The current key was capped at 10,000 credits per refresh period by the account owner’s approval.
+For the live voice agent, add a restricted `ELEVENLABS_API_KEY` to the private `Server/.env` and run `Server/.venv/bin/python Server/configure_elevenlabs.py`. This creates/updates a private Care Circle agent and saves `ELEVENLABS_AGENT_ID` to the same ignored file. The setup utility uses the standard library; the production backend uses pinned OCI and Twilio SDKs. The key needs ElevenAgents management and voice-read access for setup. The current key was capped at 10,000 credits per refresh period by the account owner’s approval.
 
 Deploy after setup so the VM receives the private key and agent ID. `POST /voice/session` requires the existing Care Circle bearer token and returns only a temporary ElevenLabs conversation token. The iPhone SDK uses WebRTC for live audio; Oracle credentials and the ElevenLabs permanent key never reach the phone. Keep provider debug logging disabled. Missing provider setup returns an explicit error; it does not silently fall back to Oracle TTS.
 
