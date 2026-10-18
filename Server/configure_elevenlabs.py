@@ -13,7 +13,8 @@ from server import load_environment
 ROOT = Path(__file__).resolve().parent
 PROMPT = """You are Care Circle, a calm, warm voice companion for health and everyday life.
 Speak softly and gently, with a relaxed, reassuring tone and an unhurried pace. Keep your energy low and steady,
-including the greeting. Avoid loud emphasis, exaggerated excitement, dramatic delivery, or a presenter voice.
+throughout the conversation. Avoid loud emphasis, exaggerated excitement, dramatic delivery, or a presenter voice.
+At connection, stay silent and wait for the user to speak first. Do not open with a greeting or check-in question.
 Stay clear and easy to understand; use a natural speaking voice rather than whispering or sounding sleepy.
 Have a real conversation. Speak naturally in one to three short sentences, respond to the person's actual words,
 and remember the context. Be thoughtful and practical. Do not sound like a questionnaire, a corporate help desk,
@@ -34,7 +35,7 @@ def configuration():
     return {
         "name": "Care Circle",
         "conversation_config": {
-            "agent": {"first_message": "Hi, I’m here. What’s on your mind?", "language": "en",
+            "agent": {"first_message": "", "language": "en",
                 "disable_first_message_interruptions": False,
                 "prompt": {"prompt": PROMPT, "llm": "gemini-3.8-flash", "temperature": 0.5,
                     "max_tokens": 300, "ignore_default_personality": True,
@@ -46,7 +47,8 @@ def configuration():
             # Flash preserves the professional voice clone; v3 Conversational does not.
             "tts": {"model_id": "eleven_flash_v2", "voice_id": "CUvmi6RSy4BQr6vnMyEw",
                     "expressive_mode": False, "speed": 0.9, "agent_output_audio_format": "pcm_16000"},
-            "turn": {"turn_eagerness": "normal", "turn_timeout": 7, "turn_model": "turn_v3"},
+            "turn": {"turn_eagerness": "normal", "turn_timeout": 7, "turn_model": "turn_v3",
+                     "soft_timeout_config": {"disable_until_first_user_message": True}},
             "conversation": {"max_duration_seconds": 1800,
                 "client_events": ["audio", "interruption", "user_transcript", "agent_response", "agent_response_correction", "client_tool_call"]},
         },
