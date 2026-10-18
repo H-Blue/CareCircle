@@ -43,7 +43,7 @@ struct ContentView: View {
                 homeScreen
             }
         }
-        .sheet(isPresented: $showMenu) { MenuSheet(store: voice.visits, startVisit: {
+        .fullScreenCover(isPresented: $showMenu) { MenuSheet(store: voice.visits, startVisit: {
             showMenu = false
             voice.startVisit()
         }) }
@@ -156,64 +156,84 @@ private struct MenuSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
-                    Image(systemName: "heart.circle")
-                        .font(.system(size: 44, weight: .light))
-                        .foregroundStyle(CareStyle.burgundy)
-                        .accessibilityHidden(true)
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("A little support.\nA circle of care.")
-                            .font(.largeTitle.weight(.medium))
-                        Text("Care Circle is a space to ask questions, talk through your day, and find support for your health and wellbeing.")
-                            .font(.body)
-                            .foregroundStyle(.secondary)
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if let error = store.storageError {
+                            Text(error).font(.footnote).padding(.bottom, 20)
+                        }
+                        if store.visits.isEmpty {
+                            Text("Latest appointment")
+                                .font(.title2).padding(.bottom, 16)
+                            menuLine
+                            Text("Your recorded appointments will appear here.")
+                                .font(.body).foregroundStyle(CareStyle.ink.opacity(0.65))
+                                .padding(.top, 20)
+                        }
+                        ForEach(Array(store.visits.enumerated()), id: \.element.id) { index, visit in
+                            NavigationLink {
+                                VisitDetailView(store: store, id: visit.id)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    if index == 0 {
+                                        Text("Latest appointment")
+                                            .font(.title2)
+                                    }
+                                    Text(visit.date, format: .dateTime.month(.wide).day().year())
+                                        .font(index == 0 ? .body : .title2)
+                                        .foregroundStyle(CareStyle.ink.opacity(index == 0 ? 0.65 : 1))
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 20)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            menuLine
+                        }
+                        Spacer(minLength: 80)
+                        VStack(alignment: .leading, spacing: 24) {
+                            Button("Record a doctor visit", action: startVisit)
+                            NavigationLink("Saved visits & AI summaries") {
+                                VisitLibraryView(store: store)
+                            }
+                            NavigationLink("AI connection") {
+                                ConnectionSettingsView()
+                            }
+                            .font(.footnote)
+                            .foregroundStyle(CareStyle.ink.opacity(0.65))
+                        }
+                        .font(.body)
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 24)
                     }
-
-                    Button { dismiss() } label: {
-                        Label("Back to your day", systemImage: "house")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(18)
-                            .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 18))
-                    }
-                    .buttonStyle(.plain)
-
-                    NavigationLink {
-                        VisitLibraryView(store: store)
-                    } label: {
-                        Label("Saved visits & AI summaries", systemImage: "text.document")
-                    }
-                    Button(action: startVisit) {
-                        Label("Record a doctor visit", systemImage: "mic")
-                    }
-                    Text("Before recording, make sure everyone present agrees. Recordings and transcripts stay on this device; Oracle processes live speech and generates summaries.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    Text("YOUR CARE CIRCLE")
-                        .font(.caption.weight(.semibold))
-                        .tracking(2)
-                        .foregroundStyle(.secondary)
-                    NavigationLink {
-                        ConnectionSettingsView()
-                    } label: {
-                        Label("AI connection", systemImage: "network")
-                    }
-                    .tint(CareStyle.burgundy)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .frame(maxWidth: .infinity, minHeight: max(0, geometry.size.height - 48), alignment: .topLeading)
+                    .overlay(Rectangle().strokeBorder(CareStyle.ink.opacity(0.65), lineWidth: 0.75))
+                    .padding(24)
                 }
-                .padding(28)
+                .scrollIndicators(.hidden)
             }
             .foregroundStyle(CareStyle.ink)
             .background(CareStyle.cream.ignoresSafeArea())
-            .navigationTitle("Care Circle")
+            .navigationTitle("Appointments")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(CareStyle.cream, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .tint(CareStyle.ink)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
-                        .tint(CareStyle.burgundy)
+                        .tint(CareStyle.ink)
                 }
             }
         }
     }
+
+    private var menuLine: some View {
+        Rectangle().fill(CareStyle.ink.opacity(0.5)).frame(height: 0.75)
+    }
+
 }
 
 private struct VisitRecordingView: View {

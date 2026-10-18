@@ -25,7 +25,7 @@ The opening line is currently local text. Tap the circle to connect and begin li
 
 The approved Oracle deployment uses a small E5 burstable server behind Oracle API Gateway HTTPS. A private local connection profile is included only in this developer's Debug builds and installs the server connection token into the iOS Keychain. Oracle signing keys are never embedded. Fresh checkouts need their own setup; see [Oracle setup](Server/README.md) and [cloud deployment](Server/Cloud/README.md).
 
-Say **“start recording my doctor visit”** to open the live transcript screen, or start from the menu. Tap the recording circle to finish and return home. Reopen **Saved visits & AI summaries** from the top-left menu; each transcript has an **AI summary** button in the top left. Audio and transcripts stay on this device, excluded from backups. Obtain everyone’s agreement before recording. Keep the app open; interruptions stop and preserve the captured visit. Speaker names are not guessed. See [recording details and limitations](Docs/VisitRecordingPlan.md).
+Say **“start recording my doctor visit”** to open the live transcript screen, or start from the menu. Tap the recording circle to finish and return home. The top-left menu lists appointments by date, with **Latest appointment** first. Tap an appointment to reopen its transcript; each transcript has an **AI summary** button in the top left. **Saved visits & AI summaries** also provides recording management. Audio and transcripts stay on this device, excluded from backups. Obtain everyone’s agreement before recording. Keep the app open; interruptions stop and preserve the captured visit. Speaker names are not guessed. See [recording details and limitations](Docs/VisitRecordingPlan.md).
 
 
 ## ElevenLabs setup

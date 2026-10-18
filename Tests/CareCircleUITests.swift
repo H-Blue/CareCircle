@@ -42,9 +42,15 @@ final class CareCircleUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Open menu"].waitForExistence(timeout: 10))
         app.terminate(); app.launch()
         app.buttons["Open menu"].tap()
-        app.buttons["Saved visits & AI summaries"].tap()
-        let savedVisit = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Transcript & AI summary")).firstMatch
-        XCTAssertTrue(savedVisit.waitForExistence(timeout: 5)); savedVisit.tap()
+        let savedVisit = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Latest appointment")).firstMatch
+        XCTAssertTrue(savedVisit.waitForExistence(timeout: 5))
+        let menuPresented = expectation(for: NSPredicate { _, _ in
+            app.navigationBars["Appointments"].frame.minY < 100 && savedVisit.isHittable
+        }, evaluatedWith: app)
+        wait(for: [menuPresented], timeout: 5)
+        let menuImage = XCTAttachment(screenshot: app.screenshot())
+        menuImage.name = "CareCircle-appointments-menu"; menuImage.lifetime = .keepAlways; add(menuImage)
+        savedVisit.tap()
         XCTAssertTrue(app.buttons["AI summary"].waitForExistence(timeout: 5))
         app.buttons["Play / stop recording"].tap()
         XCTAssertFalse(app.staticTexts["This recording couldn’t play. Your transcript is available below."].exists)
