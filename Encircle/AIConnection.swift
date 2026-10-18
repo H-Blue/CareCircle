@@ -199,27 +199,59 @@ struct SavedVisit: Codable, Identifiable {
     var transcriptionIssue: String?
     // Optional so recordings saved before archiving was added still decode.
     var archived: Bool?
+    var circleID: String?
+    var creatorID: String?
+    var finalized: Bool?
+    var cloudPending: Bool?
+    var cloudRevision: String?
+    var cloudAudioReady: Bool?
+    var cloudAudioSHA: String?
+    var cloudAudioParts: Int?
+    var cloudSummaryPending: Bool?
     var audioName: String { id.uuidString + ".caf" }
     var transcriptText: String { (lines.map(\.text) + (partial.isEmpty ? [] : [partial])).joined(separator: "\n") }
 }
 
 @MainActor
 final class VisitStore: ObservableObject {
-    @Published private(set) var visits: [SavedVisit] = []
-    @Published private(set) var summarizing: Set<UUID> = []
+    @Published var visits: [SavedVisit] = []
+    @Published var summarizing: Set<UUID> = []
     @Published var storageError: String?
-    private var summaryTasks: [UUID: Task<Void, Never>] = [:]
-    private let folder: URL
+    var summaryTasks: [UUID: Task<Void, Never>] = [:]
+    var folder: URL
+    let rootFolder: URL
+    let legacyFolder: URL
+    @Published var cloudContext: VisitCloudContext?
+    @Published var scopeKey = "signed-out"
+    @Published var cloudStatus: String?
+    var refreshingCloud = false
+    var cloudRefreshRequested = false
+    var syncTask: Task<Void, Never>?
+    var localTesting: Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        return ProcessInfo.processInfo.arguments.contains { ["--test-local-visits", "--test-record-visit", "--test-summary-home", "--test-visit-tool"].contains($0) }
+        #else
+        return false
+        #endif
+    }
+    func prepareFolder(_ location: URL) throws {
+        try FileManager.default.createDirectory(at: location, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
+        var folder = location
+        var values = URLResourceValues(); values.isExcludedFromBackup = true
+        try folder.setResourceValues(values)
+    }
 
     init() {
         folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Visits", isDirectory: true)
+        rootFolder = folder
+        legacyFolder = folder
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
             var location = folder
             var values = URLResourceValues(); values.isExcludedFromBackup = true
             try location.setResourceValues(values)
             let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil).filter { $0.pathExtension == "json" }
-            visits = try files.map { try JSONDecoder().decode(SavedVisit.self, from: Data(contentsOf: $0)) }.sorted { $0.date > $1.date }
+            if localTesting { visits = try files.map { try JSONDecoder().decode(SavedVisit.self, from: Data(contentsOf: $0)) }.sorted { $0.date > $1.date } }
         } catch { storageError = "Saved visits couldn’t be opened. Your existing files have been kept." }
     }
 
@@ -227,19 +259,31 @@ final class VisitStore: ObservableObject {
 
     func setArchived(_ id: UUID, _ archived: Bool) {
         guard var visit = visits.first(where: { $0.id == id }) else { return }
+        if cloudContext != nil { cloudArchive(visit, archived: archived); return }
         visit.archived = archived
         do { try save(visit) }
         catch { storageError = "This appointment couldn’t be updated. Please try again." }
     }
 
-    func save(_ visit: SavedVisit) throws {
+    func persist(_ visit: SavedVisit) throws {
         let data = try JSONEncoder().encode(visit)
         try data.write(to: folder.appendingPathComponent(visit.id.uuidString + ".json"), options: [.atomic, .completeFileProtection])
+    }
+
+    func save(_ visit: SavedVisit) throws {
+        if let context = cloudContext, visit.circleID != context.circleID { throw ConnectionError.message("The selected circle changed. This visit’s upload copy must be kept.") }
+        try persist(visit)
         if let index = visits.firstIndex(where: { $0.id == visit.id }) { visits[index] = visit }
         else { visits.insert(visit, at: 0) }
+        visits.sort { $0.date > $1.date }
+        if visit.cloudPending == true && visit.finalized == true { startCloudSync() }
     }
 
     func delete(_ visit: SavedVisit) {
+        if cloudContext != nil { cloudDelete(visit); return }
+        removeLocal(visit)
+    }
+    func removeLocal(_ visit: SavedVisit) {
         do {
             let audio = audioURL(visit)
             if FileManager.default.fileExists(atPath: audio.path) { try FileManager.default.removeItem(at: audio) }
@@ -251,6 +295,11 @@ final class VisitStore: ObservableObject {
     }
 
     func summarize(_ id: UUID) {
+        if cloudContext != nil {
+            if visits.first(where: { $0.id == id })?.cloudPending == true { startCloudSync() }
+            else { cloudSummarize(id) }
+            return
+        }
         guard !summarizing.contains(id), let visit = visits.first(where: { $0.id == id }), !visit.transcriptText.isEmpty else { return }
         summarizing.insert(id)
         summaryTasks[id] = Task {

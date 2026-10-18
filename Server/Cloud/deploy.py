@@ -5,6 +5,9 @@ State stays outside Git. No personal Oracle signing key is uploaded to the VM.
 import base64
 import argparse
 import gzip
+import hashlib
+import io
+import tarfile
 import json
 import os
 from pathlib import Path
@@ -20,10 +23,10 @@ from server import load_environment
 STATE_PATH = Path.home() / ".oci/encircle/cloud-state.json"
 
 
-def cloud_init(compartment):
+def cloud_init(compartment, bundle=None):
     token = os.environ["ENCIRCLE_APP_TOKEN"]
     environment = f"OCI_AUTH=instance_principal\nOCI_REGION=us-chicago-1\nOCI_COMPARTMENT_ID={compartment}\nOCI_MODEL_ID={os.environ['OCI_MODEL_ID']}\nOCI_CHAT_FORMAT=COHERE\nENCIRCLE_APP_TOKEN={token}\nENCIRCLE_HOST=127.0.0.1\nENCIRCLE_PORT=8788\n"
-    for name in ("ENCIRCLE_USERS_TABLE", "TWILIO_VERIFY_SERVICE_SID", "TWILIO_VERIFY_SELF_SERVICE", "ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER", "TWILIO_ALLOWED_NUMBERS", "TWILIO_SMS_APPROVED", "TWILIO_AUTO_ENABLE_DEMO", "TWILIO_PHONE_NUMBER_SID", "COORDINATOR_NAMESPACE", "COORDINATOR_BUCKET", "ENCIRCLE_PUBLIC_URL"):
+    for name in ("ENCIRCLE_VISITS_BUCKET", "ENCIRCLE_USERS_TABLE", "TWILIO_VERIFY_SERVICE_SID", "TWILIO_VERIFY_SELF_SERVICE", "ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER", "TWILIO_ALLOWED_NUMBERS", "TWILIO_SMS_APPROVED", "TWILIO_AUTO_ENABLE_DEMO", "TWILIO_PHONE_NUMBER_SID", "COORDINATOR_NAMESPACE", "COORDINATOR_BUCKET", "ENCIRCLE_PUBLIC_URL"):
         if os.environ.get(name):
             value = os.environ[name]
             if any(character in value for character in "\r\n\"\\%$"):
@@ -57,6 +60,13 @@ server {
  access_log off;
  error_log /dev/null crit;
  client_max_body_size 64k;
+ location /visits {
+  client_max_body_size 2m;
+  limit_req zone=encircle burst=10 nodelay;
+  proxy_pass http://127.0.0.1:8788;
+  proxy_read_timeout 70s;
+  proxy_set_header Authorization $http_authorization;
+ }
  location /twilio/ {
   limit_req zone=encircle_webhooks burst=30 nodelay;
   proxy_pass http://127.0.0.1:8788;
@@ -72,6 +82,7 @@ server {
 """
     files = [("/opt/encircle/server.py", (ROOT / "Server/server.py").read_text(), "0644"),
              ("/opt/encircle/coordinator.py", (ROOT / "Server/coordinator.py").read_text(), "0644"),
+             ("/opt/encircle/visits.py", (ROOT / "Server/visits.py").read_text(), "0644"),
              ("/opt/encircle/users.py", (ROOT / "Server/users.py").read_text(), "0644"),
              ("/opt/encircle/sms_consent.py", (ROOT / "Server/sms_consent.py").read_text(), "0644"),
              ("/opt/encircle/requirements.txt", (ROOT / "Server/requirements.txt").read_text(), "0644"),
@@ -79,6 +90,19 @@ server {
              ("/etc/encircle.env", environment, "0600"),
              ("/etc/systemd/system/encircle.service", service, "0644"),
              ("/etc/nginx/conf.d/encircle.conf", nginx, "0644")]
+    download_command = []
+    if bundle:
+        files = [entry for entry in files if not entry[0].startswith("/opt/encircle/")]
+        downloader = ("import oci,hashlib,io,tarfile\n"
+            "client=oci.object_storage.ObjectStorageClient({'region':'us-chicago-1'},signer=oci.auth.signers.InstancePrincipalsSecurityTokenSigner())\n"
+            f"data=client.get_object({bundle['namespace']!r},{bundle['bucket']!r},{bundle['object']!r}).data.content\n"
+            f"assert hashlib.sha256(data).hexdigest()=={bundle['sha256']!r}\n"
+            "with tarfile.open(fileobj=io.BytesIO(data),mode='r:gz') as archive:\n"
+            " for member in archive.getmembers():\n"
+            "  assert member.isfile() and not member.name.startswith('/') and '..' not in member.name.split('/')\n"
+            " archive.extractall('/opt/encircle')\n")
+        files.append(("/opt/encircle/download_source.py", downloader, "0600"))
+        download_command = ["/opt/encircle/venv/bin/pip install oci==2.188.0", "/opt/encircle/venv/bin/python /opt/encircle/download_source.py"]
     config = {
         "package_update": True,
         "packages": ["python3-venv", "python3-pip", "nginx", "iptables-persistent"],
@@ -88,6 +112,7 @@ server {
             "iptables -I INPUT 1 -s 10.42.0.0/24 -p tcp --dport 8787 -j ACCEPT",
             "iptables-save > /etc/iptables/rules.v4",
             "python3 -m venv /opt/encircle/venv",
+            *download_command,
             "/opt/encircle/venv/bin/pip install -r /opt/encircle/requirements.txt",
             "rm -f /etc/nginx/sites-enabled/default",
             "systemctl daemon-reload",
@@ -192,15 +217,40 @@ def main():
     os.environ["COORDINATOR_NAMESPACE"] = namespace
     os.environ["COORDINATOR_BUCKET"] = bucket
     os.environ["ENCIRCLE_PUBLIC_URL"] = state.get("endpoint", os.environ.get("ENCIRCLE_PUBLIC_URL", ""))
+    visits_bucket = state.get("visits_bucket", "encircle-visits")
+    try:
+        data = storage.get_bucket(namespace, visits_bucket).data
+        if data.public_access_type != "NoPublicAccess" or data.versioning != "Enabled":
+            raise RuntimeError("Visit storage must be private and versioned")
+    except oci.exceptions.ServiceError as error:
+        if error.status != 404: raise
+        storage.create_bucket(namespace, oci.object_storage.models.CreateBucketDetails(
+            compartment_id=compartment, name=visits_bucket, public_access_type="NoPublicAccess", versioning="Enabled"))
+    save("visits_bucket", visits_bucket)
+    os.environ["ENCIRCLE_VISITS_BUCKET"] = visits_bucket
+    statements = [
+        f"Allow dynamic-group id {group} to manage objects in compartment id {compartment} where all {{target.bucket.name='{visits_bucket}', any {{request.permission='OBJECT_INSPECT', request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}}}",
+        f"Allow dynamic-group id {group} to read objects in compartment id {compartment} where all {{target.bucket.name='{bucket}', target.object.name='deploy/*'}}"]
+    current = identity.get_policy(state["policy"]).data
+    extra = [item for item in statements if item not in current.statements]
+    if extra: identity.update_policy(state["policy"], oci.identity.models.UpdatePolicyDetails(statements=current.statements + extra))
     if args.prepare_only:
         print("Private versioned coordinator storage and scoped instance permissions prepared.", flush=True)
         return
     # Validate the complete payload before replacing the working backend.
-    bootstrap = cloud_init(compartment)
+    archive_buffer = io.BytesIO()
+    with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
+        for relative in ("server.py", "coordinator.py", "users.py", "visits.py", "sms_consent.py", "requirements.txt", "fixtures/appointments.json"):
+            archive.add(ROOT / "Server" / relative, arcname=relative)
+    source = archive_buffer.getvalue()
+    source_hash = hashlib.sha256(source).hexdigest()
+    source_name = "deploy/backend-" + source_hash + ".tar.gz"
+    storage.put_object(namespace, bucket, source_name, source, content_type="application/gzip")
+    bootstrap = cloud_init(compartment, {"namespace": namespace, "bucket": bucket, "object": source_name, "sha256": source_hash})
     if len(bootstrap.encode()) > 32000:
         raise ValueError("Compressed startup data is too large; split the package before replacing the server")
     if args.replace_server and state.get("instance"):
-        print("Replacing the backend; coordinator state stays in private versioned storage and saved visits stay on the iPhone.", flush=True)
+        print("Replacing the backend; coordinator state stays in private versioned storage and cloud visits stay in private Oracle storage; pending uploads stay on the iPhone.", flush=True)
         compute.terminate_instance(state["instance"], preserve_boot_volume=False)
         oci.wait_until(compute, compute.get_instance(state["instance"]), "lifecycle_state", "TERMINATED", max_wait_seconds=600)
         state.pop("instance")
@@ -246,7 +296,9 @@ def main():
     user_routes = [("/users/me", ["GET"]), ("/users/sms/consent", ["GET", "POST"])] + [(p, ["POST"]) for p in (
         "/users/auth/start", "/users/auth/check", "/users/logout", "/users/profile", "/users/circles/create",
         "/users/circles/join", "/users/circles/rotate", "/users/circles/leave")]
-    for path, methods in user_routes + [("/health", ["GET"]), ("/appointments", ["GET", "POST"]), ("/coordinator", ["GET"]), ("/sms/consent", ["GET", "POST"]),
+    visit_routes = [("/visits", ["GET"]), ("/visits/detail", ["GET"]), ("/visits/audio/part", ["GET", "POST"])] + [(p, ["POST"]) for p in (
+        "/visits/save", "/visits/archive", "/visits/delete", "/visits/summary", "/visits/audio/start", "/visits/audio/finish", "/visits/speech/session", "/visits/voice/session")]
+    for path, methods in visit_routes + user_routes + [("/health", ["GET"]), ("/appointments", ["GET", "POST"]), ("/coordinator", ["GET"]), ("/sms/consent", ["GET", "POST"]),
                           ("/coordinator/configure", ["POST"]), ("/coordinator/simulate", ["POST"]), ("/coordinator/check", ["POST"]),
                           ("/twilio/inbound", ["POST"]), ("/twilio/status", ["POST"]),
                           ("/chat", ["POST"]), ("/speech/session", ["POST"]), ("/speech/synthesize", ["POST"]), ("/voice/session", ["POST"])]:

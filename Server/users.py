@@ -219,6 +219,17 @@ class Accounts:
     def me(self, token):
         return self.store.update(lambda data: self.snapshot(data, self.identity(data, token)))
 
+    def circle_identity(self, token, circle_id):
+        if not isinstance(circle_id, str) or not re.fullmatch(r"[a-f0-9]{32}", circle_id):
+            raise UserError("Choose a valid circle.")
+        def read(data):
+            uid = self.identity(data, token)
+            circle = data["circles"].get(circle_id)
+            if not circle or uid not in circle["members"]:
+                raise UserError("This circle is not available to your account.", 403)
+            return uid, circle["members"][uid]
+        return self.store.update(read)
+
     def consent(self, token, payload=None):
         def change(data):
             uid = self.identity(data, token)

@@ -189,9 +189,10 @@ class ElevenLabsVoice:
         return {"token": token}
 
 
-def make_handler(chat, token, voice=None, coordinator=None, accounts=None):
+def make_handler(chat, token, voice=None, coordinator=None, accounts=None, cloud_visits=None):
     rate_lock = threading.Lock()
     requests = []
+    visit_requests = []
 
     class Handler(BaseHTTPRequestHandler):
         # Do not log URLs, health questions, auth headers, or Oracle error bodies.
@@ -217,6 +218,63 @@ def make_handler(chat, token, voice=None, coordinator=None, accounts=None):
         def authenticated(self):
             supplied = self.headers.get("Authorization", "").encode()
             return hmac.compare_digest(supplied, f"Bearer {token}".encode())
+
+        def visit_request(self, post=False):
+            from users import UserError, digest
+            from visits import CHUNK
+            if cloud_visits is None:
+                self.reply(503, {"error": "Circle visit storage is being configured."}); return
+            try:
+                bearer = self.headers.get("Authorization", "")
+                session = bearer[7:] if bearer.startswith("Bearer ") else ""
+                parsed = urllib.parse.urlsplit(self.path)
+                query = urllib.parse.parse_qs(parsed.query)
+                if any(len(v) != 1 for v in query.values()): raise UserError("Invalid visit request.")
+                query = {k: v[0] for k, v in query.items()}
+                with rate_lock:
+                    now = time.monotonic(); key = digest(session)
+                    visit_requests[:] = [(t, who) for t, who in visit_requests if now - t < 60]
+                    if len(visit_requests) >= 1200 or sum(who == key for _, who in visit_requests) >= 180:
+                        raise UserError("Please pause briefly and retry syncing.", 429)
+                    visit_requests.append((now, key))
+                payload = {}; raw = None
+                if post:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < length <= CHUNK or self.headers.get("Transfer-Encoding"): raise UserError("This visit upload is too large or empty.")
+                    self.connection.settimeout(60)
+                    raw = self.rfile.read(length)
+                    if len(raw) != length: raise UserError("The upload was interrupted. Please retry.")
+                    if parsed.path != "/visits/audio/part":
+                        if self.headers.get_content_type() != "application/json": raise UserError("Expected a JSON visit request.")
+                        payload = json.loads(raw)
+                        if not isinstance(payload, dict): raise UserError("Invalid visit request.")
+                    elif self.headers.get_content_type() != "application/octet-stream": raise UserError("Expected recording bytes.")
+                circle = query.get("circle_id")
+                if parsed.path == "/visits" and not post:
+                    result = cloud_visits.listing(session, circle, query.get("cursor"))
+                elif parsed.path == "/visits/detail" and not post:
+                    uid, _ = accounts.circle_identity(session, circle)
+                    record, _ = cloud_visits.record(circle, query.get("visit_id"))
+                    result = cloud_visits.present(record, bool(cloud_visits.archives(uid).get(circle + "/" + record["visit"]["id"])))
+                elif parsed.path == "/visits/audio/part":
+                    result = cloud_visits.audio_part(session, circle, query.get("visit_id"), query.get("sha"), int(query.get("index", "-1")), raw if post else None)
+                    if not post:
+                        self.send_data(200, result, "application/octet-stream"); return
+                elif post and parsed.path in ("/visits/speech/session", "/visits/voice/session"):
+                    accounts.circle_identity(session, payload.get("circle_id"))
+                    result = chat.speech_session() if parsed.path == "/visits/speech/session" else voice.session()
+                elif post:
+                    actions = {"/visits/save": cloud_visits.save, "/visits/archive": cloud_visits.archive,
+                        "/visits/delete": cloud_visits.delete, "/visits/summary": cloud_visits.summarize,
+                        "/visits/audio/start": cloud_visits.audio_start, "/visits/audio/finish": cloud_visits.audio_finish}
+                    action = actions.get(parsed.path)
+                    if not action: raise UserError("Not found.", 404)
+                    result = action(session, payload)
+                else: raise UserError("Not found.", 404)
+                self.reply(200, result)
+            except UserError as error: self.reply(error.status, {"error": str(error)})
+            except (ValueError, UnicodeDecodeError): self.reply(400, {"error": "Invalid visit request."})
+            except Exception: self.reply(503, {"error": "Circle visit storage is temporarily unavailable. Your phone’s upload copy must be kept; please retry."})
 
         def account_request(self, post=False):
             from users import UserError
@@ -250,6 +308,8 @@ def make_handler(chat, token, voice=None, coordinator=None, accounts=None):
             except Exception: self.reply(503, {"error": "Accounts are temporarily unavailable. Please try again."})
 
         def do_GET(self):
+            if urllib.parse.urlsplit(self.path).path.startswith("/visits"):
+                self.visit_request(); return
             if self.path.startswith("/users/"):
                 self.account_request(); return
             if not self.authenticated():
@@ -301,6 +361,8 @@ def make_handler(chat, token, voice=None, coordinator=None, accounts=None):
             except Exception: self.reply(503, {"error": "Messaging event couldn’t be saved. Please retry."})
 
         def do_POST(self):
+            if urllib.parse.urlsplit(self.path).path.startswith("/visits"):
+                self.visit_request(post=True); return
             if self.path.startswith("/users/"):
                 self.account_request(post=True); return
             if urllib.parse.urlsplit(self.path).path in ("/twilio/inbound", "/twilio/status"):
@@ -403,7 +465,11 @@ def main():
     if os.environ.get("ENCIRCLE_USERS_TABLE") and os.environ.get("TWILIO_VERIFY_SERVICE_SID"):
         from users import Accounts, OracleDirectory, VerifyProvider
         accounts = Accounts(OracleDirectory(), VerifyProvider())
-    server = ThreadingHTTPServer((host, port), make_handler(chat, token, ElevenLabsVoice(), coordinator, accounts))
+    cloud_visits = None
+    if accounts is not None and os.environ.get("ENCIRCLE_VISITS_BUCKET"):
+        from visits import CloudVisits, OracleObjects
+        cloud_visits = CloudVisits(accounts, OracleObjects(), chat)
+    server = ThreadingHTTPServer((host, port), make_handler(chat, token, ElevenLabsVoice(), coordinator, accounts, cloud_visits))
     print(f"Encircle development bridge listening on {host}:{port}. No conversation logging.")
     try:
         server.serve_forever()

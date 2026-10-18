@@ -163,7 +163,10 @@ final class EncircleVoiceSession: NSObject, ObservableObject {
             guard generation == turn, !Task.isCancelled else { return }
             guard permission else { throw ConnectionError.message("Allow microphone access in iPhone Settings to speak with Encircle.") }
             struct Session: Decodable { let token: String; let compartmentId: String; let endpoint: String }
-            let data = try await api.request("speech/session", post: true)
+            let data: Data
+            if let context = visits.cloudContext {
+                data = try await VisitCloudClient(token: context.token).session("speech", circle: context.circleID)
+            } else { data = try await api.request("speech/session", post: true) }
             let session = try JSONDecoder().decode(Session.self, from: data)
             guard generation == turn, !Task.isCancelled else { return }
             guard var components = URLComponents(string: session.endpoint),
@@ -328,7 +331,10 @@ final class EncircleVoiceSession: NSObject, ObservableObject {
             guard generation == turn, !Task.isCancelled else { return }
             guard permission else { throw ConnectionError.message("Allow microphone access in Settings to talk with Encircle.") }
             struct VoiceSession: Decodable { let token: String }
-            let data = try await api.request("voice/session", post: true)
+            let data: Data
+            if let context = visits.cloudContext {
+                data = try await VisitCloudClient(token: context.token).session("voice", circle: context.circleID)
+            } else { data = try await api.request("voice/session", post: true) }
             let session = try JSONDecoder().decode(VoiceSession.self, from: data)
             guard generation == turn, !Task.isCancelled else { return }
             ElevenLabs.configure(.init(logLevel: .error, debugMode: false))
@@ -447,8 +453,15 @@ final class EncircleVoiceSession: NSObject, ObservableObject {
 
     func startVisit() {
         guard activeVisit == nil else { return }
+        guard visits.cloudRecordingAllowed else {
+            end(); notice = "Sign in and choose a circle in Your account before recording. Everyone in that circle will be able to view the visit."
+            return
+        }
         end()
-        let visit = SavedVisit(id: UUID(), date: Date())
+        var visit = SavedVisit(id: UUID(), date: Date())
+        if let context = visits.cloudContext {
+            visit.circleID = context.circleID; visit.creatorID = context.userID; visit.cloudPending = true
+        }
         do { try visits.save(visit) }
         catch { notice = "Couldn’t start recording. Please check device storage."; return }
         activeVisit = visit
@@ -492,6 +505,7 @@ final class EncircleVoiceSession: NSObject, ObservableObject {
             guard generation == turn, var visit = activeVisit else { return }
             visit.duration = Date().timeIntervalSince(visit.date)
             visit.complete = !interrupted
+            visit.finalized = true
             stopCapture()
             // Wait for the microphone queue to close the audio file before exposing playback.
             try? await AudioWork.run {}

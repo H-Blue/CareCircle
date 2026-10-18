@@ -108,7 +108,7 @@ private struct AccountRequestError: LocalizedError {
     func refresh() async {
         guard signedIn, !busy else { return }
         busy = true; error = nil; defer { busy = false }
-        do { snapshot = try JSONDecoder().decode(AccountSnapshot.self, from: await request("users/me")) }
+        do { snapshot = try JSONDecoder().decode(AccountSnapshot.self, from: await request("users/me")); CircleSelection.notify() }
         catch {
             if (error as? AccountRequestError)?.status == 401 { clear() }
             self.error = error.localizedDescription
@@ -132,6 +132,7 @@ private struct AccountRequestError: LocalizedError {
             guard let token = result.token else { throw ConnectionError.message("Sign-in wasn’t completed. Please try again.") }
             try AccountCredential.save(token)
             self.token = token; snapshot = result; signedIn = true; self.challenge = nil
+            CircleSelection.notify()
         } catch { self.error = error.localizedDescription }
     }
 
@@ -140,6 +141,7 @@ private struct AccountRequestError: LocalizedError {
         busy = true; error = nil; defer { busy = false }
         do {
             snapshot = try JSONDecoder().decode(AccountSnapshot.self, from: await request(path, payload: payload))
+            CircleSelection.notify()
             return true
         } catch {
             if (error as? AccountRequestError)?.status == 401 { clear() }
@@ -159,6 +161,7 @@ private struct AccountRequestError: LocalizedError {
     }
     private func clear() {
         AccountCredential.clear(); token = ""; signedIn = false; snapshot = nil; challenge = nil
+        CircleSelection.notify()
     }
 }
 
@@ -271,7 +274,7 @@ private struct CircleSetupView: View {
                 Section {
                     TextField("Invitation code", text: $invitation).textInputAutocapitalization(.characters).autocorrectionDisabled()
                     Picker("I’m joining as", selection: $role) { Text("Family").tag("family"); Text("Friend").tag("friend") }
-                } footer: { Text("Ask the circle leader for their invitation code. Joining shares your name and role with the circle.") }
+                } footer: { Text("Ask the circle leader for their invitation code. Joining shares your name and role and gives you access to this circle’s recorded visits.") }
             } else {
                 Section {
                     TextField("Circle name", text: $name)
@@ -297,6 +300,7 @@ private struct UserCircleView: View {
     @State private var copied = false
     @State private var replaceCode = false
     @State private var leave = false
+    @State private var selectedCircleID = ""
     @Environment(\.dismiss) private var dismiss
     private var circle: UserCircle? { account.snapshot?.circles.first { $0.id == circleID } }
 
@@ -304,6 +308,14 @@ private struct UserCircleView: View {
         Form {
             if let circle {
                 Section { Text(circle.name).font(.title2); Text("Caring for " + circle.patient_name) }
+                if let uid = account.snapshot?.user.id {
+                    Section {
+                        Button(selectedCircleID == circle.id ? "Selected for visit recordings" : "Use this circle for visit recordings") {
+                            CircleSelection.select(circle.id, user: uid); selectedCircleID = circle.id
+                        }
+                        Text("New recordings, transcripts and summaries are shared with every member of this circle.").font(.footnote)
+                    }
+                }
                 Section("People") {
                     ForEach(circle.members) { member in
                         HStack { Text(member.name); Spacer(); Text(member.role.capitalized).foregroundStyle(.secondary) }
@@ -315,13 +327,14 @@ private struct UserCircleView: View {
                         Button(copied ? "Invitation code copied" : "Copy invitation code") { UIPasteboard.general.string = invite; copied = true }
                         Button("Replace invitation code") { replaceCode = true }.disabled(account.busy)
                     } header: { Text("Invite family & friends") }
-                    footer: { Text("Anyone with this code and a verified account can join. Share it only with people you trust. Replacing it prevents new joins with the old code; existing members stay.") }
+                    footer: { Text("Anyone with this code and a verified account can join and access the circle’s recorded visits. Share it only with people you trust. Replacing it prevents new joins with the old code; existing members stay.") }
                 } else {
                     Button("Leave circle", role: .destructive) { leave = true }.disabled(account.busy)
                 }
             }
             if let error = account.error { Text(error).foregroundStyle(.red) }
         }.scrollContentBackground(.hidden).background(CareStyle.cream.ignoresSafeArea()).navigationTitle("Your circle")
+        .onAppear { if let uid = account.snapshot?.user.id { selectedCircleID = CircleSelection.selected(uid) ?? "" } }
         .confirmationDialog("Replace the invitation code?", isPresented: $replaceCode) {
             Button("Replace code") { Task { _ = await account.save("users/circles/rotate", ["circle_id": circleID]); copied = false } }
         }

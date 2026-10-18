@@ -30,7 +30,7 @@ def main():
     if not rows:
         client.create_table(oci.nosql.models.CreateTableDetails(name="EncircleUsers", compartment_id=state["compartment"],
             ddl_statement="CREATE TABLE EncircleUsers (id STRING, data JSON, PRIMARY KEY (id))",
-            table_limits=oci.nosql.models.TableLimits(max_read_units=10, max_write_units=10,
+            table_limits=oci.nosql.models.TableLimits(max_read_units=256, max_write_units=128,
                 max_storage_in_g_bs=1, capacity_mode="PROVISIONED"), is_auto_reclaimable=False))
     for _ in range(30):
         rows = tables()
@@ -38,6 +38,16 @@ def main():
         time.sleep(2)
     if not rows or rows[0].lifecycle_state != "ACTIVE":
         raise RuntimeError("The user table is not active yet. Check Oracle work requests before retrying.")
+    table = client.get_table(rows[0].id).data
+    if table.table_limits.capacity_mode != "PROVISIONED" or table.table_limits.max_read_units < 256 or table.table_limits.max_write_units < 128:
+        client.update_table(rows[0].id, oci.nosql.models.UpdateTableDetails(compartment_id=state["compartment"],
+            table_limits=oci.nosql.models.TableLimits(max_read_units=256, max_write_units=128,
+                max_storage_in_g_bs=1, capacity_mode="PROVISIONED")))
+    for _ in range(30):
+        table = client.get_table(rows[0].id).data
+        if table.table_limits.max_read_units >= 256 and table.table_limits.max_write_units >= 128: break
+        time.sleep(2)
+    else: raise RuntimeError("Oracle has not applied the account capacity update. Check it before deployment.")
     state["users_table"] = rows[0].id
     state_file.write_text(json.dumps(state, indent=2)); state_file.chmod(0o600)
     twilio = Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])

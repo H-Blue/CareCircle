@@ -3,7 +3,7 @@ import XCTest
 final class EncircleUITests: XCTestCase {
     func testPhoneSignInCreateCircleAndJoinAsFamily() {
         let app = XCUIApplication()
-        app.launchArguments = ["--test-account-flow"]
+        app.launchArguments = ["--test-account-flow", "--test-cloud-visit"]
         app.launchEnvironment["ENCIRCLE_ACCOUNT_TEST_ADDRESS"] = "http://127.0.0.1:8799"
         app.launch()
         app.buttons["Open menu"].tap()
@@ -60,6 +60,23 @@ final class EncircleUITests: XCTestCase {
         withdraw.tap()
         XCTAssertTrue(app.staticTexts["Your SMS consent has been withdrawn."].waitForExistence(timeout: 5))
         app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let sharedVisit = app.buttons["appointment-71E041CE-225E-42F7-91E3-A2ABC762AE01"]
+        XCTAssertTrue(sharedVisit.waitForExistence(timeout: 20))
+        sharedVisit.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Your scan shows no fracture")).firstMatch.waitForExistence(timeout: 5))
+        app.buttons["AI summary"].tap()
+        XCTAssertTrue(app.staticTexts["Your scan showed no broken bone. Arrange a check-in in two weeks."].waitForExistence(timeout: 15))
+        app.buttons["Done"].tap()
+        let play = app.buttons["Play / stop recording"]
+        play.tap()
+        let playing = NSPredicate(format: "value == %@", "Playing")
+        expectation(for: playing, evaluatedWith: play)
+        waitForExpectations(timeout: 15)
+        XCTAssertFalse(app.staticTexts["Recording playback error"].exists)
+        play.tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["Your account"].tap()
         app.buttons["Sign out"].tap()
     }
 
@@ -173,7 +190,7 @@ final class EncircleUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Visit saved. Find your transcript and AI summary in the top-left menu."].exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Encircle-home-recap"; screenshot.lifetime = .keepAlways; add(screenshot)
-        app.terminate(); app.launchArguments = []; app.launch()
+        app.terminate(); app.launchArguments = ["--test-local-visits"]; app.launch()
         XCTAssertTrue(recap.waitForExistence(timeout: 10))
         app.buttons["View appointment"].tap()
         XCTAssertTrue(app.buttons["AI summary"].waitForExistence(timeout: 5))
@@ -225,7 +242,7 @@ final class EncircleUITests: XCTestCase {
         image.name = "Encircle-visit-recording"; image.lifetime = .keepAlways; add(image)
         app.buttons["Finish visit recording"].tap()
         XCTAssertTrue(app.buttons["Open menu"].waitForExistence(timeout: 10))
-        app.terminate(); app.launchArguments = []; app.launch()
+        app.terminate(); app.launchArguments = ["--test-local-visits"]; app.launch()
         app.buttons["Open menu"].tap()
         let savedVisit = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Latest appointment")).firstMatch
         XCTAssertTrue(savedVisit.waitForExistence(timeout: 5))

@@ -38,11 +38,11 @@ Server/.venv/bin/python Server/server.py
 
 In the **iPhone simulator**, open the app's menu > **AI connection**, enter `http://localhost:8787` and your app connection token, then **Save and check connection**. This checks the bridge; send a simple non-sensitive message to verify Oracle inference separately. The app keeps the app token in the iOS Keychain.
 
-On a **physical iPhone**, use the [Oracle HTTPS deployment](Cloud/README.md). The app requires HTTPS outside the simulator. `Server/configure_device.py` creates a private local Debug connection profile after deployment; rerun the app from Xcode to install it. The cloud server uses its instance identity rather than a personal Oracle signing key. Add per-user authentication before distributing a multi-user production app.
+On a **physical iPhone**, use the [Oracle HTTPS deployment](Cloud/README.md). The app requires HTTPS outside the simulator. `Server/configure_device.py` creates a private local Debug connection profile after deployment; rerun the app from Xcode to install it. The cloud server uses its instance identity rather than a personal Oracle signing key. Recorded-visit sharing uses separate phone-verified user sessions and checks circle membership on every request; the legacy owner connection remains for the demo scheduling/transport features.
 
 ## App behavior
 
-The iPhone uses ElevenLabs for live conversation, Oracle realtime Speech for doctor-visit transcripts, and Oracle chat for short grounded summaries. Visit recordings remain on the phone. See the [app overview](../README.md) and [persistent coordinator](../Docs/CareCoordinator.md) for current behavior.
+The iPhone uses ElevenLabs for live conversation, Oracle realtime Speech for doctor-visit transcripts, and Oracle chat for short grounded summaries. Shared visit recordings, transcripts and summaries persist in private Oracle Object Storage. The phone keeps a protected upload/recovery queue until checksums are acknowledged and downloads protected playback copies when needed. See the [app overview](../README.md) and [persistent coordinator](../Docs/CareCoordinator.md) for current behavior.
 
 ## Mock appointments
 

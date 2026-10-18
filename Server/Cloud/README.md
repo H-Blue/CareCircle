@@ -23,7 +23,7 @@ If free A1 capacity is unavailable, obtain the account owner's approval before s
 Server/.venv/bin/python Server/Cloud/deploy.py --paid-small-server
 ```
 
-Deployment identifiers and endpoint are saved in `~/.oci/encircle/cloud-state.json`, outside Git. The script reuses recorded resources on retries. A server's source is installed at first boot; changing local source and rerunning this script does not update an existing VM. To deploy changed source to this stateless personal backend, use `--paid-small-server --replace-server`. This replaces only the app VM and its boot volume, preserves the gateway address and backend token, and causes a brief outage during bootstrapping. Saved visits live on the iPhone. Coordinator state is stored outside the boot volume in a private, versioned Object Storage bucket and survives replacement. The compressed startup package is size-checked before the working VM is terminated.
+Deployment identifiers and endpoint are saved in `~/.oci/encircle/cloud-state.json`, outside Git. The script reuses recorded resources on retries. A server's source is installed at first boot; changing local source and rerunning this script does not update an existing VM. To deploy changed source to this stateless personal backend, use `--paid-small-server --replace-server`. This replaces only the app VM and its boot volume, preserves the gateway address and backend token, and causes a brief outage during bootstrapping. Shared recorded visits persist in the private, versioned visit bucket. The phone retains a protected pending-upload queue and playback cache; legacy recordings remain on the phone until explicitly shared. Coordinator state is stored outside the boot volume in a private, versioned Object Storage bucket and survives replacement. The compressed startup package is size-checked before the working VM is terminated.
 
 The small paid option was approved for this prototype after Chicago A1 capacity failed in all three availability domains. Estimated basic hosting is about $8–10/month depending on storage/free allowances and usage, excluding Generative AI and Speech charges. Trial credits apply while available. This estimate is not a spending cap. Review actual usage in Oracle billing.
 
@@ -42,7 +42,7 @@ This writes an owner-only, ignored `Encircle/LocalConnection.plist`. Debug build
 1. Ordinary conversation: `POST /voice/session` authenticates the app and mints a temporary private ElevenLabs conversation token. The permanent provider key stays in `/etc/encircle.env` on the VM.
 2. The official ElevenLabs Swift SDK connects directly over WebRTC, manages live speech/turn-taking/interruptions, and exposes microphone frames for local bass/treble animation. Provider audio recording is disabled; transcript retention is one day with deletion enabled.
 3. An explicit recording request or the agent's native client tool disconnects ElevenLabs, releases its audio session, and opens the local doctor-visit recorder.
-4. Visits stream 16 kHz PCM to Oracle realtime Speech using `/speech/session`. Full audio and transcript checkpoints are saved on the iPhone. Finishing calls `/chat` for grounded Oracle summaries.
+4. Visits stream 16 kHz PCM to Oracle realtime Speech using `/speech/session`. During capture, protected audio and transcript checkpoints are saved in the phone’s circle-scoped upload queue. Finishing uploads the transcript through session-authenticated `/visits/save`, requests a grounded Oracle summary, and resumes compressed audio parts into private Object Storage. Member playback and metadata requests are authorized against current circle membership.
 
 The gateway includes `/voice/session` alongside the existing Oracle routes. Ending, backgrounding or audio interruptions stop ordinary conversation. A failed visit-transcription connection leaves local visit audio recording active with a visible gap warning. Legacy synthesis remains available to older builds.
 
@@ -65,3 +65,11 @@ Only the authorized own-number demo can auto-activate after Twilio approval. Set
 ## User accounts
 
 `prepare_users.py` prepares the separate paid Oracle NoSQL account table and Twilio Verify service. Deployment includes the account routes and grants the VM row read/write access to that table only. See [phone sign-in and circle membership](../../Docs/UserAccounts.md) for setup, costs, trial restrictions and data isolation. No real user is created and no text is sent during provisioning.
+
+## Shared visit storage and deployment bundles
+
+The dedicated `encircle-visits` bucket is private and versioned. The VM can list/read/create/overwrite its objects, but cannot make public links or purge versions through the app. Every member-facing route checks a phone-verified user session and current circle membership. The account table now reserves 256 read units and 128 write units (1 GB storage) to support repeated membership checks and concurrent account updates; preparation waits for Oracle to actually apply that capacity. These increased database charges, storage/request/transfer charges and AI usage are additional to VM hosting.
+
+Source is packaged into a content-addressed tar archive in the existing private coordinator bucket under `deploy/`. Startup metadata holds the small bootstrap and private environment. After installing the pinned Oracle SDK, the VM downloads only that private source object using its instance identity, verifies SHA-256, rejects unsafe tar members, and installs it. No keys or environment files are included in the source archive. This avoids growing past OCI’s startup-metadata limit as the backend expands.
+
+See [recording behavior and migration](../../Docs/VisitRecordingPlan.md). `check_visits.py` runs a live, admin-authorized smoke test using temporary synthetic accounts and recordings, never sends SMS or records consent, and cleans up exactly its own rows/object versions. The old coordinator/scheduling demo remains separate from recorded-visit circles.

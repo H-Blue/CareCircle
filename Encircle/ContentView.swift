@@ -93,8 +93,25 @@ struct ContentView: View {
             showCalendarConnection = true
         }
         .task { await calendar.refreshIfEnabled() }
+        .task {
+            while !Task.isCancelled {
+                if voice.activeVisit == nil { await voice.visits.refreshCloud() }
+                do { try await Task.sleep(for: .seconds(15)) } catch { return }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: CircleSelection.changed)) { _ in
+            guard voice.activeVisit == nil else { return }
+            if let context = voice.visits.cloudContext,
+               context.token != AccountCredential.read() || CircleSelection.selected(context.userID) != context.circleID {
+                voice.visits.switchScope(nil)
+            }
+            Task { await voice.visits.refreshCloud() }
+        }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await calendar.refreshIfEnabled() } }
+            if phase == .active { Task {
+                await calendar.refreshIfEnabled()
+                if voice.activeVisit == nil { await voice.visits.refreshCloud() }
+            } }
         }
         #if DEBUG
         .task {
@@ -290,8 +307,19 @@ private struct AppointmentMenu: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    if let context = store.cloudContext {
+                        Text(context.circleName).font(.headline).padding(.vertical, 12)
+                        Text("Visits are shared with this circle.").font(.footnote).foregroundStyle(.secondary)
+                        if !store.legacyVisits.isEmpty {
+                            NavigationLink("Share older phone recordings") { LegacyVisitImportView(store: store) }.padding(.vertical, 12)
+                        }
+                    } else {
+                        NavigationLink("Sign in and choose a circle") { UserAccountView() }.padding(.vertical, 12)
+                    }
+                    if let status = store.cloudStatus { Text(status).font(.footnote).padding(.vertical, 8) }
                     if let error = store.storageError {
                         Text(error).font(.footnote).padding(.vertical, 12)
+                        Button("Retry cloud sync") { Task { await store.refreshCloud() } }.padding(.bottom, 12)
                     }
                     ForEach(Array(appointments.enumerated()), id: \.element.id) { index, visit in
                         SwipeAppointmentRow(store: store, visit: visit, latest: index == 0)
@@ -313,6 +341,7 @@ private struct AppointmentMenu: View {
                 .padding(.top, 20)
             }
             .scrollIndicators(.hidden)
+            .refreshable { await store.refreshCloud() }
             .background(CareStyle.cream.ignoresSafeArea())
             .foregroundStyle(CareStyle.ink)
             .navigationTitle("Appointments")
@@ -458,6 +487,9 @@ private struct VisitRecordingView: View {
                     }
                 }
             }
+            if let context = voice.visits.cloudContext {
+                Text("Shared with " + context.circleName).font(.footnote).foregroundStyle(.secondary)
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
@@ -529,14 +561,14 @@ private struct VisitLibraryView: View {
                 }
                 .swipeActions { Button("Delete", role: .destructive) { deleting = visit } }
             }
-            Text("Saved on this device and excluded from cloud backups. Deleting the app removes these visits.")
+            Text("Shared visits are stored privately in Oracle Cloud. This phone keeps an upload queue and protected playback cache.")
                 .font(.footnote).foregroundStyle(.secondary)
         }
         .navigationTitle("Saved visits")
         .alert("Delete this visit?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button("Delete recording and transcript", role: .destructive) { if let deleting { store.delete(deleting) }; deleting = nil }
             Button("Cancel", role: .cancel) { deleting = nil }
-        } message: { Text("This removes the saved audio, transcript and summary from this device.") }
+        } message: { Text("For a shared visit, this removes access for everyone in the circle. Only its recorder or the circle leader can do this. Oracle’s private storage history may retain earlier versions.") }
     }
 }
 
@@ -555,9 +587,13 @@ private struct VisitDetailView: View {
             if let visit {
                 VStack(alignment: .leading, spacing: 24) {
                     Text(visit.date, format: .dateTime.month().day().year().hour().minute()).font(.headline)
+                    if visit.circleID != nil {
+                        Text(visit.cloudPending == true ? "Waiting to finish uploading. Keep this app open or return later to resume." : "Shared with everyone in this circle.").font(.footnote)
+                    }
                     Button { playbackTask?.cancel(); playbackTask = Task { await togglePlayback(visit) }
                     } label: { Label("Play / stop recording", systemImage: "play.circle") }
-                    if let playbackError { Text(playbackError).font(.callout) }
+                    .accessibilityValue(player?.isPlaying == true ? "Playing" : "Stopped")
+                    if let playbackError { Text(playbackError).font(.callout).accessibilityIdentifier("Recording playback error") }
                     if !visit.complete { Text("Recording was interrupted. This transcript may be incomplete.").font(.callout) }
                     if let issue = visit.transcriptionIssue { Text(issue).font(.callout).foregroundStyle(CareStyle.burgundy) }
                     Text(visit.transcriptText.isEmpty ? "No speech was transcribed. The captured recording is available above." : visit.transcriptText)
@@ -621,6 +657,10 @@ private struct VisitDetailView: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showSummary = false } } }
             }
         }
+        .onChange(of: store.scopeKey) { _, _ in
+            playbackTask?.cancel(); player?.stop(); player = nil; dismiss()
+        }
+        .onChange(of: visit?.archived) { _, archived in if archived == true { dismiss() } }
         .onDisappear {
             playbackTask?.cancel(); playbackTask = nil
             player?.stop(); player = nil
@@ -636,10 +676,12 @@ private struct VisitDetailView: View {
                 try AVAudioSession.sharedInstance().setActive(true)
             }
             guard !Task.isCancelled else { return }
-            let audio = try AVAudioPlayer(contentsOf: store.audioURL(visit))
+            let localAudio = try await store.prepareAudio(visit)
+            guard !Task.isCancelled else { return }
+            let audio = try AVAudioPlayer(contentsOf: localAudio)
             player = audio
             guard audio.play() else { throw ConnectionError.message("Couldn’t play this recording.") }
-        } catch { playbackError = "This recording couldn’t play. Your transcript is available below." }
+        } catch { playbackError = error.localizedDescription; AudioWork.deactivate() }
     }
 
 }
