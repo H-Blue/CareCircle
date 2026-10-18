@@ -14,4 +14,4 @@ The response includes `schema_version`, `source: mock_scheduler`, `is_test_data:
 
 This is a read-only development fixture, bundled into the server deployment so it survives redeployment from the repository. It is not a patient database. A later scheduling adapter can return this same shape from an authorized real provider. Do not replace this fixture with real patient data in Git.
 
-The feed does not send messages, create calendar events, or appear in the iOS visit-recording menu yet. Twilio, iMessage, Calendar, reminders, and real scheduling connections are separate integration steps.
+The feed itself has no messaging or calendar side effects. The iOS [Apple Calendar connection](AppleCalendar.md) can now read it and save events after the user connects Calendar. The scheduled slots are separate from saved visit recordings. Twilio, iMessage, reminders, and real scheduling connections remain separate integration steps.

@@ -10,8 +10,11 @@ private enum CareStyle {
 
 struct ContentView: View {
     @StateObject private var voice = CareCircleVoiceSession()
+    @StateObject private var calendar = CareCalendarStore()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showMenu = false
     @State private var selectedHomeVisit: SavedVisit?
+    @State private var showCalendarConnection = false
     @Namespace private var menuMotion
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .title) private var greetingSize = 32
@@ -49,7 +52,7 @@ struct ContentView: View {
                         .allowsHitTesting(!showMenu)
                         .accessibilityHidden(showMenu)
                     if showMenu {
-                        AppointmentMenu(store: voice.visits, motion: menuMotion, close: { setMenu(false) })
+                        AppointmentMenu(store: voice.visits, calendar: calendar, motion: menuMotion, close: { setMenu(false) })
                             .transition(.opacity)
                     }
                 }
@@ -75,6 +78,24 @@ struct ContentView: View {
             .presentationDragIndicator(.visible)
         }
         .onDisappear { voice.end() }
+        .sheet(isPresented: $showCalendarConnection) {
+            NavigationStack {
+                CalendarIntegrationView(store: calendar)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showCalendarConnection = false }
+                    } }
+            }
+            .presentationBackground(CareStyle.cream)
+        }
+        .onOpenURL { url in
+            guard url.scheme == "carecircle", url.host == "appointment", voice.activeVisit == nil else { return }
+            voice.end()
+            showCalendarConnection = true
+        }
+        .task { await calendar.refreshIfEnabled() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await calendar.refreshIfEnabled() } }
+        }
         #if DEBUG
         .task {
             // UI checks can exercise local recording without spending a conversation session.
@@ -260,6 +281,7 @@ private struct HomeVisitBrief: View {
 
 private struct AppointmentMenu: View {
     @ObservedObject var store: VisitStore
+    @ObservedObject var calendar: CareCalendarStore
     let motion: Namespace.ID
     let close: () -> Void
     private var appointments: [SavedVisit] { store.visits.filter { $0.archived != true } }
@@ -306,7 +328,10 @@ private struct AppointmentMenu: View {
                         Image(systemName: "gearshape")
                     }.accessibilityLabel("AI connection")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    NavigationLink { CalendarIntegrationView(store: calendar) } label: {
+                        Image(systemName: "calendar")
+                    }.accessibilityLabel("Apple Calendar & transport")
                     Button("Done", action: close)
                 }
             }

@@ -1,6 +1,50 @@
 import XCTest
 
 final class CareCircleUITests: XCTestCase {
+    func testCalendarSyncAndTransportNotesPersistWithoutDuplicates() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--test-calendar-sync"]
+        app.launch()
+        app.buttons["Open menu"].tap()
+        app.buttons["Apple Calendar & transport"].tap()
+        let first = app.buttons["scheduled-demo-appointment-2026-11-03"]
+        XCTAssertTrue(first.waitForExistence(timeout: 20))
+        let name = app.textFields["Care recipient name"]
+        name.tap()
+        if let value = name.value as? String { name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count)) }
+        name.typeText("Demo Care Recipient\n")
+        let connect = app.buttons["Connect Apple Calendar"]
+        if connect.exists { connect.tap() } else { app.buttons["Save & sync calendar"].tap() }
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let allow = springboard.alerts.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Allow' AND NOT label CONTAINS[c] 'Don' AND NOT label CONTAINS[c] 'Only'")).firstMatch
+        if allow.waitForExistence(timeout: 5) { allow.tap() }
+        let synced = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "3 appointments updated")).firstMatch
+        guard synced.waitForExistence(timeout: 30) else {
+            XCTFail("Calendar sync did not finish: " + app.debugDescription); return
+        }
+        first.tap()
+        let taking = app.textFields["Taking them"]
+        let unavailable = app.textFields["Not taking them"]
+        taking.tap()
+        if let value = taking.value as? String { taking.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count)) }
+        taking.typeText("Alex\n")
+        unavailable.tap()
+        if let value = unavailable.value as? String { unavailable.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count)) }
+        unavailable.typeText("Jordan\n")
+        app.buttons["Save transport details"].tap()
+        XCTAssertTrue(synced.waitForExistence(timeout: 30))
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "CareCircle-calendar-transport"; screenshot.lifetime = .keepAlways; add(screenshot)
+        app.terminate(); app.launch()
+        app.buttons["Open menu"].tap()
+        app.buttons["Apple Calendar & transport"].tap()
+        XCTAssertTrue(first.waitForExistence(timeout: 20)); first.tap()
+        XCTAssertEqual(taking.value as? String, "Alex")
+        XCTAssertEqual(unavailable.value as? String, "Jordan")
+        // Debug verification in the EventKit adapter also checks one matching event per slot
+        // and exact transport notes after every real native calendar save, including relaunch.
+    }
+
     func testHomeAnticipatesVisitSummary() {
         let app = XCUIApplication()
         app.launchArguments = ["--test-summary-home"]

@@ -2,6 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleURLTypes</key>
+    <array><dict>
+        <key>CFBundleURLName</key><string>com.harryhutchins.carecircle.appointments</string>
+        <key>CFBundleURLSchemes</key><array><string>carecircle</string></array>
+    </dict></array>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Care Circle adds the care recipient’s appointments to your selected calendar and updates who is taking them in the event notes. Full access lets it update its existing events without creating duplicates. Other calendar events are not uploaded.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Care Circle uses ElevenLabs for voice conversations and Oracle for doctor-visit transcription. Visit audio is saved on this device only when you start recording. End the conversation or finish recording to stop the microphone.</string>
     <key>NSAppTransportSecurity</key>

@@ -2,6 +2,8 @@
 
 The Oracle backend also provides an authenticated [mock scheduling feed](Docs/MockAppointments.md) with three synthetic appointment slots for upcoming calendar and messaging integration work.
 
+[Apple Calendar integration](Docs/AppleCalendar.md) adds those slots to a selected calendar and keeps care-recipient and transport details in event notes. Open the menu’s calendar icon to connect. Calendar permission and the care recipient’s name are required once; subsequent updates run when the app is active.
+
 A native SwiftUI iPhone and iPad starter app based on the supplied sketch.
 
 ## Open and run
