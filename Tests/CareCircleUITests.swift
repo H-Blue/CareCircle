@@ -11,8 +11,11 @@ final class CareCircleUITests: XCTestCase {
         if allowMicrophone.waitForExistence(timeout: 3) { allowMicrophone.tap() }
         XCTAssertTrue(app.buttons["End conversation"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["Open menu"].exists)
-        // A configured developer build can connect; fresh checkouts can still verify the transition.
-        _ = app.staticTexts["Listening"].waitForExistence(timeout: 10)
+        XCTAssertTrue(app.buttons["Pause microphone"].waitForExistence(timeout: 30))
+        app.buttons["Pause microphone"].tap()
+        XCTAssertTrue(app.buttons["Resume microphone"].waitForExistence(timeout: 5))
+        app.buttons["Resume microphone"].tap()
+        XCTAssertTrue(app.buttons["Pause microphone"].waitForExistence(timeout: 5))
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "CareCircle-voice-mode"
         attachment.lifetime = .keepAlways
@@ -47,6 +50,27 @@ final class CareCircleUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["This recording couldn’t play. Your transcript is available below."].exists)
         app.buttons["AI summary"].tap()
         XCTAssertTrue(app.staticTexts["AI summary"].waitForExistence(timeout: 5))
+    }
+
+    func testElevenLabsRecordingToolOpensRecorder() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--test-visit-tool"]
+        app.launch()
+        app.buttons["Speak to Care Circle"].tap()
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let allow = springboard.alerts.buttons["Allow"]
+        if allow.waitForExistence(timeout: 2) { allow.tap() }
+        let openedOrFailed = expectation(for: NSPredicate { _, _ in
+            app.buttons["Finish visit recording"].exists || app.staticTexts["Voice paused"].exists
+        }, evaluatedWith: app)
+        wait(for: [openedOrFailed], timeout: 60)
+        guard app.buttons["Finish visit recording"].exists else {
+            XCTFail("The ElevenLabs session failed before opening the native recorder."); return
+        }
+        XCTAssertTrue(app.staticTexts["Recording…"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["End conversation"].exists)
+        app.buttons["Finish visit recording"].tap()
+        XCTAssertTrue(app.buttons["Open menu"].waitForExistence(timeout: 10))
     }
 
 }

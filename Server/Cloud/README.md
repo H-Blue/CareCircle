@@ -39,13 +39,12 @@ This writes an owner-only, ignored `CareCircle/LocalConnection.plist`. Debug bui
 
 ## Voice pipeline
 
-1. The app requests a temporary Oracle realtime Speech token through `/speech/session`.
-2. The microphone sends 16 kHz signed 16-bit mono PCM directly to Oracle's authenticated WSS endpoint. The same input buffer supplies local bass/treble energy for the circles.
-3. Oracle's final utterance result triggers `/chat` with bounded recent context.
-4. `/speech/synthesize` strips formatting markers and returns Oracle MP3 audio. The app plays the reply, then begins a new listening turn. A tap during playback interrupts and retains recent conversation history.
-5. A direct visit-recording command opens continuous transcription instead of calling chat. The app writes audio and checkpoints transcripts locally; finishing generates a grounded summary through the same authenticated chat route. This does not enable server-side storage or automatic speaker identification.
+1. Ordinary conversation: `POST /voice/session` authenticates the app and mints a temporary private ElevenLabs conversation token. The permanent provider key stays in `/etc/carecircle.env` on the VM.
+2. The official ElevenLabs Swift SDK connects directly over WebRTC, manages live speech/turn-taking/interruptions, and exposes microphone frames for local bass/treble animation. Provider audio recording is disabled; transcript retention is one day with deletion enabled.
+3. An explicit recording request or the agent's native client tool disconnects ElevenLabs, releases its audio session, and opens the local doctor-visit recorder.
+4. Visits stream 16 kHz PCM to Oracle realtime Speech using `/speech/session`. Full audio and transcript checkpoints are saved on the iPhone. Finishing calls `/chat` for grounded Oracle summaries.
 
-An ordinary turn stops after one minute without completion. Ending the session, backgrounding the app, or an audio interruption stops the microphone and closes its connection. No recording files are created in this mode.
+The gateway includes `/voice/session` alongside the existing Oracle routes. Ending, backgrounding or audio interruptions stop ordinary conversation. A failed visit-transcription connection leaves local visit audio recording active with a visible gap warning. Legacy synthesis remains available to older builds.
 
 ## Verification
 

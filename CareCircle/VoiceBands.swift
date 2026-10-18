@@ -43,6 +43,7 @@ enum SpokenText {
         var value = text
         for (pattern, replacement) in [
             (#"```[\s\S]*?```"#, " "),
+            (#"(?i)\[(?:calm|laughs|sighs|whispers|excited|thoughtful|sad|happy|chuckles|warmly)\]"#, ""),
             (#"!\[([^\]]*)\]\([^)]*\)"#, "$1"),
             (#"\[([^\]]+)\]\([^)]*\)"#, "$1"),
             (#"(?m)^\s*(?:#{1,6}\s*|[-+*]\s+|\d+[.)]\s+)"#, ""),

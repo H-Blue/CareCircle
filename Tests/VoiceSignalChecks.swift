@@ -16,6 +16,7 @@ struct VoiceSignalChecks {
             precondition(!VisitCommand.isStart(question), "Must not record for a negation or question about capabilities: \(question)")
         }
         precondition(SpokenText.clean("**Hello!** [Your notes](https://example.com)\n* Take care!") == "Hello. Your notes Take care.", "Formatting must not be read aloud.")
+        precondition(SpokenText.clean("[calm] I’m here to help.") == "I’m here to help.", "Voice direction tags must not appear in displayed replies.")
         let low = measure(frequency: 80, amplitude: 0.1)
         let high = measure(frequency: 6000, amplitude: 0.1)
         let quiet = measure(frequency: 80, amplitude: 0.005)

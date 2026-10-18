@@ -3,6 +3,8 @@ import UIKit
 import AVFoundation
 import Combine
 import Dispatch
+import ElevenLabs
+import LiveKit
 
 /// Audio route changes and engine setup may block; keep them off the UI thread.
 enum AudioWork {
@@ -84,7 +86,7 @@ final class MicrophoneCapture: @unchecked Sendable {
 }
 
 @MainActor
-final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegate {
+final class CareCircleVoiceSession: NSObject, ObservableObject {
     enum Phase: String {
         case idle, connecting, listening, thinking, speaking, failed
     }
@@ -110,11 +112,14 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
     private var timeout: Task<Void, Never>?
     private var captureTimeout: Task<Void, Never>?
     private var audio: AsyncStream<Data>.Continuation?
-    private var player: AVAudioPlayer?
-    private var history: [ChatMessage] = []
+    private var conversation: Conversation?
+    private var subscriptions = Set<AnyCancellable>()
+    private var inputMeter: ConversationMeter?
+    private var voiceShutdown: Task<Void, Never>?
+    private var handledTools = Set<String>()
+    @Published private(set) var isMuted = false
     private var generation = UUID()
     private var observers: [NSObjectProtocol] = []
-    private var remainingSpeech: [String] = []
     var isActive: Bool { phase != .idle }
 
     override init() {
@@ -141,14 +146,13 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
         error = nil
         reply = ""
         transcript = ""
-        history = []
         notice = nil
         generation = UUID()
         let turn = generation
-        task = Task { await listen(turn: turn) }
+        task = Task { await connectElevenLabs(turn: turn) }
     }
 
-    private func listen(turn: UUID) async {
+    private func transcribeVisit(turn: UUID) async {
         guard generation == turn, !Task.isCancelled else { return }
         phase = .connecting
         transcript = ""
@@ -208,8 +212,6 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
                                 continue
                             }
                             if result["isFinal"] as? Bool == true {
-                                stopCapture()
-                                await respond(text: text, turn: turn)
                                 return
                             }
                         }
@@ -293,46 +295,151 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
         } else { fail(message) }
     }
 
+    /// During live conversation the circle pauses/resumes the microphone.
     func finishTurn() {
-        guard phase == .listening, let socket else { return }
+        guard let conversation else { return }
         let turn = generation
-        finalizer = Task { [weak self] in
-            do { try await socket.send(.string("{\"event\":\"SEND_FINAL_RESULT\"}")) }
-            catch {
-                guard !Task.isCancelled, self?.generation == turn else { return }
-                self?.fail("Couldn’t finish this message. Please try again.")
-            }
+        Task {
+            do { try await conversation.toggleMute() }
+            catch { if generation == turn { fail("Couldn’t change the microphone. Please reconnect.") } }
         }
     }
 
-    private func respond(text: String, turn: UUID) async {
-        guard generation == turn else { return }
-        if VisitCommand.isStart(text) { startVisit(); return }
-        phase = .thinking
+    func interruptReply() {
+        guard let conversation else { return }
+        // Silence local playout immediately while the provider processes the interruption.
+        conversation.agentAudioTrack?.volume = 0
+        phase = .listening
+        let turn = generation
+        Task {
+            do { try await conversation.interruptAgent() }
+            catch { if generation == turn { fail("The conversation was interrupted. Please reconnect.") } }
+        }
+    }
+
+    private func connectElevenLabs(turn: UUID) async {
+        phase = .connecting
         do {
-            let userMessage = ChatMessage(role: "user", content: text)
-            let result = try await api.reply(to: Array(history.suffix(18)) + [userMessage])
+            await voiceShutdown?.value
             guard generation == turn, !Task.isCancelled else { return }
-            history.append(userMessage)
-            history.append(ChatMessage(role: "assistant", content: result))
-            reply = result
-            let spoken = SpokenText.clean(result)
-            guard !spoken.isEmpty else { throw ConnectionError.message("The reply couldn’t be spoken. Please try again.") }
-            remainingSpeech = Self.speechSegments(spoken)
-            try await speakNext(turn: turn)
+            let permission = await AVAudioApplication.requestRecordPermission()
+            guard generation == turn, !Task.isCancelled else { return }
+            guard permission else { throw ConnectionError.message("Allow microphone access in Settings to talk with Care Circle.") }
+            struct VoiceSession: Decodable { let token: String }
+            let data = try await api.request("voice/session", post: true)
+            let session = try JSONDecoder().decode(VoiceSession.self, from: data)
+            guard generation == turn, !Task.isCancelled else { return }
+            ElevenLabs.configure(.init(logLevel: .error, debugMode: false))
+            #if targetEnvironment(simulator)
+            // Simulator audio cannot reliably create the hardware voice-processing unit.
+            // Keep native echo processing enabled on physical iPhones.
+            try AudioManager.shared.setPlatformVoiceProcessingAllowed(false)
+            #endif
+            let config = ConversationConfig(
+                audioConfiguration: .init(recordingAlwaysPrepared: true),
+                onAgentResponse: { [weak self] text, _ in
+                    Task { @MainActor in
+                        guard let self, self.generation == turn else { return }
+                        self.reply = SpokenText.clean(text)
+                    }
+                },
+                onAgentResponseCorrection: { [weak self] _, corrected, _ in
+                    Task { @MainActor in
+                        guard let self, self.generation == turn else { return }
+                        self.reply = SpokenText.clean(corrected)
+                    }
+                },
+                onUserTranscript: { [weak self] text, _ in
+                    Task { @MainActor in
+                        guard let self, self.generation == turn else { return }
+                        self.transcript = text
+                        if VisitCommand.isStart(text) { self.startVisit() }
+                        else if self.phase != .speaking { self.phase = .thinking }
+                    }
+                }
+            )
+            let connected = try await ElevenLabs.startConversation(conversationToken: session.token, config: config)
+            guard generation == turn, !Task.isCancelled else { await connected.endConversation(); return }
+            conversation = connected
+            phase = .listening
+            audioIsBeingSent = true
+            let meter = ConversationMeter { [weak self] bass, treble in
+                Task { @MainActor in
+                    guard let self, self.generation == turn, !self.isMuted else { return }
+                    self.bass = self.bass * 0.55 + CGFloat(bass) * 0.45
+                    self.treble = self.treble * 0.55 + CGFloat(treble) * 0.45
+                }
+            }
+            inputMeter = meter
+            connected.inputTrack?.add(audioRenderer: meter)
+            connected.$agentState.sink { [weak self] state in
+                guard let self, self.generation == turn else { return }
+                self.phase = state == .speaking ? .speaking : .listening
+                if state == .listening { self.conversation?.agentAudioTrack?.volume = 1 }
+            }.store(in: &subscriptions)
+            connected.$isMuted.sink { [weak self] muted in
+                guard let self, self.generation == turn else { return }
+                self.isMuted = muted; self.audioIsBeingSent = !muted
+                if muted { self.bass = 0; self.treble = 0 }
+            }.store(in: &subscriptions)
+            connected.$state.sink { [weak self] state in
+                guard let self, self.generation == turn else { return }
+                switch state {
+                case .error: self.fail("ElevenLabs voice couldn’t continue. Please try again.")
+                case .ended: self.end()
+                default: break
+                }
+            }.store(in: &subscriptions)
+            connected.$pendingToolCalls.sink { [weak self] calls in
+                guard let self, self.generation == turn else { return }
+                for call in calls where self.handledTools.insert(call.toolCallId).inserted {
+                    Task { await self.handleTool(call, turn: turn) }
+                }
+            }.store(in: &subscriptions)
+            #if DEBUG
+            // Live integration test: exercise the real provider tool through its text-input API.
+            if ProcessInfo.processInfo.arguments.contains("--test-visit-tool") {
+                try await connected.sendMessage("Please start recording my doctor visit now.")
+            }
+            #endif
         } catch {
             guard generation == turn, !Task.isCancelled else { return }
-            fail(error.localizedDescription)
+            try? await AudioManager.shared.setRecordingAlwaysPreparedMode(false)
+            #if DEBUG
+            let diagnostic = error.localizedDescription
+                .replacingOccurrences(of: #"(?:https?|wss)://[^\s]+"#, with: "[endpoint]", options: .regularExpression)
+                .replacingOccurrences(of: #"[A-Za-z0-9_=-]{32,}"#, with: "[redacted]", options: .regularExpression)
+            UserDefaults.standard.set(String(diagnostic.prefix(400)), forKey: "careCircleVoiceStartupDiagnostic")
+            #endif
+            // SDK errors can contain transport details; do not display or log tokens.
+            if let connectionError = error as? ConnectionError { fail(connectionError.localizedDescription) }
+            else { fail("Couldn’t connect to ElevenLabs voice. Please try again.") }
         }
     }
 
-    /// Interrupt playback and preserve conversational history.
-    func interruptReply() {
-        guard activeVisit == nil else { return }
-        task?.cancel(); player?.stop(); player = nil; remainingSpeech = []
-        generation = UUID()
-        let turn = generation
-        task = Task { await listen(turn: turn) }
+    private func handleTool(_ call: ClientToolCallEvent, turn: UUID) async {
+        guard generation == turn, let conversation else { return }
+        guard call.toolName == "start_visit_recording" else {
+            if call.expectsResponse { try? await conversation.sendToolResult(for: call.toolCallId, result: "This action is unavailable.", isError: true) }
+            else { conversation.markToolCallCompleted(call.toolCallId) }
+            return
+        }
+        // Start the actual recorder; never allow a model-only confirmation to stand in for it.
+        startVisit()
+    }
+
+    private func stopElevenLabs() {
+        subscriptions.removeAll()
+        if let meter = inputMeter { conversation?.inputTrack?.remove(audioRenderer: meter) }
+        inputMeter = nil
+        if let ending = conversation {
+            conversation = nil
+            voiceShutdown = Task {
+                await ending.endConversation()
+                try? await AudioManager.shared.setRecordingAlwaysPreparedMode(false)
+            }
+        }
+        handledTools = []; isMuted = false
     }
 
     func startVisit() {
@@ -349,6 +456,8 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
         phase = .connecting
         task = Task {
             do {
+                await voiceShutdown?.value
+                guard generation == turn, !Task.isCancelled else { return }
                 let permission = await AVAudioApplication.requestRecordPermission()
                 guard generation == turn, !Task.isCancelled else { return }
                 guard permission else { throw ConnectionError.message("Allow microphone access in Settings to record a visit.") }
@@ -356,7 +465,7 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
                 try await startMicrophone(turn: turn)
                 guard generation == turn, !Task.isCancelled else { microphone.stop(); return }
                 isRecordingVisit = true
-                await listen(turn: turn)
+                await transcribeVisit(turn: turn)
             } catch { if generation == turn, !Task.isCancelled { fail(error.localizedDescription) } }
         }
     }
@@ -397,63 +506,6 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
         }
     }
 
-    static func speechSegments(_ text: String) -> [String] {
-        var segments: [String] = []
-        var current = ""
-        for word in text.split(whereSeparator: { $0.isWhitespace }) {
-            if current.count + word.count + 1 > 1900 && !current.isEmpty {
-                segments.append(current)
-                current = ""
-            }
-            // A model can return an unusually long unbroken word. Keep every request bounded.
-            if word.count > 1900 {
-                if !current.isEmpty { segments.append(current); current = "" }
-                var rest = word[...]
-                while !rest.isEmpty { segments.append(String(rest.prefix(1900))); rest = rest.dropFirst(min(rest.count, 1900)) }
-            } else {
-                current += (current.isEmpty ? "" : " ") + word
-            }
-        }
-        if !current.isEmpty { segments.append(current) }
-        return segments
-    }
-
-    private func speakNext(turn: UUID) async throws {
-        guard !remainingSpeech.isEmpty else { return }
-        phase = .thinking
-        let text = remainingSpeech.removeFirst()
-        let data = try await api.request("speech/synthesize", text: text)
-        guard generation == turn, !Task.isCancelled else { return }
-        try await AudioWork.run {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .spokenAudio)
-            try session.setActive(true)
-        }
-        guard generation == turn, !Task.isCancelled else { return }
-        let playback = try AVAudioPlayer(data: data)
-        playback.delegate = self
-        player = playback
-        phase = .speaking
-        guard playback.play() else { throw ConnectionError.message("The reply couldn’t play. You can read it above.") }
-    }
-
-    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in
-            guard self.phase == .speaking else { return }
-            if flag {
-                let turn = self.generation
-                self.task = Task {
-                    if self.remainingSpeech.isEmpty {
-                        await self.listen(turn: turn)
-                    } else {
-                        do { try await self.speakNext(turn: turn) }
-                        catch { if self.generation == turn { self.fail("The spoken reply couldn’t continue. You can read it above.") } }
-                    }
-                }
-            } else { self.fail("The spoken reply was interrupted. Tap the circle to reconnect.") }
-        }
-    }
-
     private func stopCapture(keepRecording: Bool = false) {
         audioIsBeingSent = false
         if !keepRecording { microphone.stop(); isRecordingVisit = false }
@@ -469,7 +521,7 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
     private func fail(_ message: String) {
         if activeVisit != nil { finishVisit(interrupted: true, message: message); return }
         stopCapture()
-        player?.stop(); player = nil
+        stopElevenLabs()
         error = message
         phase = .failed
         AudioWork.deactivate()
@@ -481,13 +533,39 @@ final class OracleVoiceSession: NSObject, ObservableObject, AVAudioPlayerDelegat
         task?.cancel(); task = nil
         finalizer?.cancel(); finalizer = nil
         stopCapture()
-        player?.stop(); player = nil
+        stopElevenLabs()
         phase = .idle
-        history = []
-        remainingSpeech = []
         transcript = ""
         reply = ""
         error = nil
         AudioWork.deactivate()
+    }
+}
+
+
+private final class ConversationMeter: NSObject, AudioRenderer, @unchecked Sendable {
+    private let lock = NSLock()
+    private var bands = VoiceBands()
+    private var frames = 0
+    private let deliver: @Sendable (Float, Float) -> Void
+    init(deliver: @escaping @Sendable (Float, Float) -> Void) { self.deliver = deliver }
+
+    func render(pcmBuffer: AVAudioPCMBuffer) {
+        let count = Int(pcmBuffer.frameLength)
+        guard count > 0 else { return }
+        lock.lock()
+        let levels: (Float, Float)
+        if let samples = pcmBuffer.floatChannelData?[0] {
+            levels = bands.levels(samples: UnsafeBufferPointer(start: samples, count: count), sampleRate: pcmBuffer.format.sampleRate)
+        } else if let samples = pcmBuffer.int16ChannelData?[0] {
+            let stride = pcmBuffer.format.isInterleaved ? Int(pcmBuffer.format.channelCount) : 1
+            let normalized = (0..<count).map { Float(samples[$0 * stride]) / 32768 }
+            levels = normalized.withUnsafeBufferPointer { bands.levels(samples: $0, sampleRate: pcmBuffer.format.sampleRate) }
+        } else { lock.unlock(); return }
+        frames += count
+        let publish = frames >= Int(pcmBuffer.format.sampleRate / 25)
+        if publish { frames = 0 }
+        lock.unlock()
+        if publish { deliver(levels.0, levels.1) }
     }
 }

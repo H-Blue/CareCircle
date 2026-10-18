@@ -61,3 +61,12 @@ cd Server
 These checks use a stubbed Oracle response. Live account verification is separate and must succeed before calling the integration connected.
 
 Oracle references: [SDK configuration](https://docs.oracle.com/en-us/iaas/Content/API/Concepts/sdkconfig.htm), [Generative AI SDK](https://docs.oracle.com/en-us/iaas/tools/python/latest/api/generative_ai_inference.html).
+
+
+## ElevenLabs conversation sessions
+
+For the live voice agent, add a restricted `ELEVENLABS_API_KEY` to the private `Server/.env` and run `Server/.venv/bin/python Server/configure_elevenlabs.py`. This creates/updates a private Care Circle agent and saves `ELEVENLABS_AGENT_ID` to the same ignored file. The setup utility uses the standard library; the production backend requires only the existing OCI SDK. The key needs ElevenAgents management and voice-read access for setup. The current key was capped at 10,000 credits per refresh period by the account owner’s approval.
+
+Deploy after setup so the VM receives the private key and agent ID. `POST /voice/session` requires the existing Care Circle bearer token and returns only a temporary ElevenLabs conversation token. The iPhone SDK uses WebRTC for live audio; Oracle credentials and the ElevenLabs permanent key never reach the phone. Keep provider debug logging disabled. Missing provider setup returns an explicit error; it does not silently fall back to Oracle TTS.
+
+Visit transcription still uses `/speech/session` and Oracle. Saved-visit summaries still use `/chat`. Legacy `/speech/synthesize` remains for compatibility with earlier developer builds; the updated app no longer calls it for ordinary conversations.

@@ -5,7 +5,7 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch, MagicMock
 
 import server
 
@@ -39,10 +39,11 @@ class SpokenOutputTests(unittest.TestCase):
 
 class HTTPTests(unittest.TestCase):
     def setUp(self):
+        self.voice = Mock()
         self.chat = Mock()
         self.chat.chat.return_value = "Hello from Oracle"
         self.token = "a" * 40
-        self.http = ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(self.chat, self.token))
+        self.http = ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(self.chat, self.token, self.voice))
         self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
         self.thread.start()
         self.base = f"http://127.0.0.1:{self.http.server_port}"
@@ -102,10 +103,43 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(set(result), {"token", "compartmentId", "endpoint"})
 
+    def test_private_voice_token_requires_backend_authentication(self):
+        self.assertEqual(self.request({}, path="/voice/session")[0], 401)
+        self.voice.session.assert_not_called()
+
+    def test_voice_session_never_returns_provider_key(self):
+        self.voice.session.return_value = {"token": "temporary-session-token"}
+        status, body = self.request({}, self.token, path="/voice/session")
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {"token": "temporary-session-token"})
+
+    def test_unconfigured_voice_does_not_silently_use_oracle_voice(self):
+        self.voice.session.side_effect = server.VoiceUnavailable("ElevenLabs setup isn’t complete on the server yet.")
+        status, body = self.request({}, self.token, path="/voice/session")
+        self.assertEqual(status, 503)
+        self.chat.speech_session.assert_not_called()
+        self.assertIn("ElevenLabs", body["error"])
+
     def test_oversized_speech_does_not_reach_oracle(self):
         status, _ = self.request({"text": "a" * 2001}, token=self.token, path="/speech/synthesize")
         self.assertEqual(status, 400)
         self.chat.synthesize.assert_not_called()
+
+
+class ElevenLabsRequestTests(unittest.TestCase):
+    def test_only_temporary_token_is_returned(self):
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b'{"token":"temporary","private":"do-not-return"}'
+        with patch.dict(server.os.environ, {"ELEVENLABS_API_KEY": "unit-test-secret", "ELEVENLABS_AGENT_ID": "agent_test"}), patch("server.urllib.request.urlopen", return_value=response) as call:
+            self.assertEqual(server.ElevenLabsVoice().session(), {"token": "temporary"})
+            request = call.call_args.args[0]
+            self.assertEqual(request.host, "api.elevenlabs.io")
+            self.assertEqual(request.get_header("Xi-api-key"), "unit-test-secret")
+            self.assertIn("agent_id=agent_test", request.full_url)
+
+    def test_missing_credentials_cannot_open_session(self):
+        with patch.dict(server.os.environ, {"ELEVENLABS_API_KEY": "", "ELEVENLABS_AGENT_ID": ""}):
+            with self.assertRaises(server.VoiceUnavailable): server.ElevenLabsVoice().session()
 
 
 class OracleRequestTests(unittest.TestCase):

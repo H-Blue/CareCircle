@@ -22,6 +22,12 @@ STATE_PATH = Path.home() / ".oci/carecircle/cloud-state.json"
 def cloud_init(compartment):
     token = os.environ["CARECIRCLE_APP_TOKEN"]
     environment = f"OCI_AUTH=instance_principal\nOCI_REGION=us-chicago-1\nOCI_COMPARTMENT_ID={compartment}\nOCI_MODEL_ID={os.environ['OCI_MODEL_ID']}\nOCI_CHAT_FORMAT=COHERE\nCARECIRCLE_APP_TOKEN={token}\nCARECIRCLE_HOST=127.0.0.1\nCARECIRCLE_PORT=8788\n"
+    for name in ("ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID"):
+        if os.environ.get(name):
+            value = os.environ[name]
+            if any(character in value for character in "\r\n\"\\%$"):
+                raise ValueError("Invalid credential format for " + name)
+            environment += f"{name}={value}\n"
     service = """[Unit]
 Description=Care Circle Oracle backend
 After=network-online.target
@@ -191,13 +197,15 @@ def main():
     print("Waiting for managed HTTPS gateway…", flush=True)
     result = oci.wait_until(gateway, gateway.get_gateway(gateway_id), "lifecycle_state", "ACTIVE", max_wait_seconds=900).data
     routes = []
-    for path, methods in [("/health", ["GET"]), ("/chat", ["POST"]), ("/speech/session", ["POST"]), ("/speech/synthesize", ["POST"])]:
+    for path, methods in [("/health", ["GET"]), ("/chat", ["POST"]), ("/speech/session", ["POST"]), ("/speech/synthesize", ["POST"]), ("/voice/session", ["POST"])]:
         routes.append(oci.apigateway.models.ApiSpecificationRoute(path=path, methods=methods,
             backend=oci.apigateway.models.HTTPBackend(url=f"http://{private_ip}:8787{path}",
                 connect_timeout_in_seconds=10, read_timeout_in_seconds=70, send_timeout_in_seconds=10)))
     spec = oci.apigateway.models.ApiSpecification(routes=routes,
         request_policies=oci.apigateway.models.ApiSpecificationRequestPolicies(
             rate_limiting=oci.apigateway.models.RateLimitingPolicy(rate_in_requests_per_second=2, rate_key="CLIENT_IP")))
+    if state.get("deployment"):
+        deployment.update_deployment(state["deployment"], oci.apigateway.models.UpdateDeploymentDetails(specification=spec))
     deployment_id = resource("deployment", lambda: deployment.create_deployment(oci.apigateway.models.CreateDeploymentDetails(
         compartment_id=compartment, gateway_id=gateway_id, display_name="carecircle-api", path_prefix="/v1", specification=spec)))
     oci.wait_until(deployment, deployment.get_deployment(deployment_id), "lifecycle_state", "ACTIVE", max_wait_seconds=600)

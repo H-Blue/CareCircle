@@ -21,6 +21,12 @@ C00000000000000000000001 = {isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1;
         B00000000000000000000011 = {isa = PBXNativeTarget; buildConfigurationList = B00000000000000000000010; buildPhases = (B00000000000000000000004, B00000000000000000000005); buildRules = (); dependencies = (B00000000000000000000007); name = CareCircleUITests; productName = CareCircleUITests; productReference = B00000000000000000000003; productType = "com.apple.product-type.bundle.ui-testing"; };
 
 
+D00000000000000000000001 = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/elevenlabs/elevenlabs-swift-sdk.git"; requirement = {kind = exactVersion; version = 3.4.0; }; };
+D00000000000000000000002 = {isa = XCSwiftPackageProductDependency; package = D00000000000000000000001; productName = ElevenLabs; };
+D00000000000000000000003 = {isa = PBXBuildFile; productRef = D00000000000000000000002; };
+D00000000000000000000004 = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/livekit/client-sdk-swift.git"; requirement = {kind = exactVersion; version = 2.18.0; }; };
+D00000000000000000000005 = {isa = XCSwiftPackageProductDependency; package = D00000000000000000000004; productName = LiveKit; };
+D00000000000000000000006 = {isa = PBXBuildFile; productRef = D00000000000000000000005; };
 /* Begin PBXBuildFile section */
 		A00000000000000000000001 /* CareCircleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011 /* CareCircleApp.swift */; };
 		A00000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000012 /* ContentView.swift */; };
@@ -44,7 +50,7 @@ C00000000000000000000001 = {isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1;
 		A00000000000000000000032 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
-			files = (
+			files = (D00000000000000000000003, D00000000000000000000006,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -99,6 +105,7 @@ C00000000000000000000001 = {isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1;
 			dependencies = (
 			);
 			name = CareCircle;
+            packageProductDependencies = (D00000000000000000000002, D00000000000000000000005);
 			productName = CareCircle;
 			productReference = A00000000000000000000014 /* CareCircle.app */;
 			productType = "com.apple.product-type.application";
@@ -128,6 +135,7 @@ C00000000000000000000001 = {isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1;
 			);
 			mainGroup = A00000000000000000000020;
 			productRefGroup = A00000000000000000000022 /* Products */;
+			packageReferences = (D00000000000000000000001, D00000000000000000000004);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -171,6 +179,7 @@ C00000000000000000000001 = {isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTABILITY = YES;
+                ONLY_ACTIVE_ARCH = YES;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"DEBUG=1",
 					"$(inherited)",

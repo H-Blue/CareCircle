@@ -15,7 +15,7 @@ The screen reminds the user to obtain everyone's agreement before recording. The
 ## Limits and further work
 
 - This is a personal development prototype using one backend connection token, not a multi-user service.
-- The Oracle integration is turn-based recognition, generation and synthesized speech. Tapping during a reply interrupts playback and preserves conversation history; acoustic hands-free barge-in and full duplex voice are not implemented.
+- Ordinary conversations use the ElevenLabs Swift SDK and its live audio/turn-taking stack, including speech interruption. The doctor-visit recorder continues to use Oracle realtime transcription. The voice conversation disconnects before visit audio capture begins. Verify acoustic interruption and Bluetooth behavior on physical iPhones.
 - Realtime transcripts do not identify Doctor/Patient automatically. Oracle file-based diarization would require a separate upload and processing workflow; never fabricate speaker names.
 - Network failures preserve captured audio but do not automatically retranscribe it. No background/locked-screen recording, pause/resume, cloud backup, cross-device sync, or retrieval-backed chat is implemented.
 - Verify long appointments, low storage, incoming calls, Bluetooth and acoustic behavior on physical iPhones before relying on it for a visit. Simulator tests cover recording UI, local save/reopen, playback and summary access, not clinical accuracy or long-session reliability.

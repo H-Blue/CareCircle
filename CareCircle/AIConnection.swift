@@ -141,7 +141,7 @@ struct ConnectionSettingsView: View {
                 if let status { Text(status).font(.callout).accessibilityAddTraits(.updatesFrequently) }
             }
             Section {
-                Text("Voice and messages are processed by Oracle Cloud while listening is active. End the session to stop the microphone. Ordinary conversations are not saved as visit recordings.")
+                Text("Conversations are processed by ElevenLabs while voice is active. Doctor-visit transcription and summaries use Oracle Cloud. End the session to stop the microphone. Ordinary conversations are not saved as visit recordings.")
                     .font(.footnote)
             }
         }

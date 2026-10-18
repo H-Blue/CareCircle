@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Care Circle streams your voice to Oracle while listening, so the assistant can respond. End the conversation to stop the microphone.</string>
+    <string>Care Circle uses ElevenLabs for voice conversations and Oracle for doctor-visit transcription. Visit audio is saved on this device only when you start recording. End the conversation or finish recording to stop the microphone.</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSExceptionDomains</key>

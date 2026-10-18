@@ -6,6 +6,9 @@ import os
 import re
 import threading
 import time
+import urllib.request
+import urllib.error
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -157,7 +160,36 @@ class BusyError(Exception):
     pass
 
 
-def make_handler(chat, token):
+class VoiceUnavailable(Exception):
+    pass
+
+
+class ElevenLabsVoice:
+    """Mint a temporary private-agent token; the provider key never reaches iOS."""
+    def __init__(self):
+        self.key = os.environ.get("ELEVENLABS_API_KEY", "")
+        self.agent = os.environ.get("ELEVENLABS_AGENT_ID", "")
+
+    def session(self):
+        if not self.key or not self.agent:
+            raise VoiceUnavailable("ElevenLabs setup isn’t complete on the server yet.")
+        query = urllib.parse.urlencode({"agent_id": self.agent})
+        request = urllib.request.Request("https://api.elevenlabs.io/v1/convai/conversation/token?" + query,
+                                         headers={"xi-api-key": self.key})
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                payload = json.load(response)
+        except urllib.error.HTTPError as error:
+            if error.code == 429:
+                raise BusyError() from None
+            raise VoiceUnavailable("ElevenLabs voice access needs attention on the server.") from None
+        token = payload.get("token") if isinstance(payload, dict) else None
+        if not isinstance(token, str) or not token:
+            raise VoiceUnavailable("ElevenLabs couldn’t open a voice session. Please try again.")
+        return {"token": token}
+
+
+def make_handler(chat, token, voice=None):
     rate_lock = threading.Lock()
     requests = []
 
@@ -198,7 +230,7 @@ def make_handler(chat, token):
             if not self.authenticated():
                 self.reply(401, {"error": "Connection token is incorrect."})
                 return
-            if self.path not in ("/chat", "/speech/session", "/speech/synthesize"):
+            if self.path not in ("/chat", "/speech/session", "/speech/synthesize", "/voice/session"):
                 self.reply(404, {"error": "Not found."})
                 return
             try:
@@ -226,10 +258,16 @@ def make_handler(chat, token):
                     requests.append(now)
                 if self.path == "/chat":
                     self.reply(200, {"reply": chat.chat(messages)})
+                elif self.path == "/voice/session":
+                    if voice is None:
+                        raise VoiceUnavailable("ElevenLabs setup isn’t complete on the server yet.")
+                    self.reply(200, voice.session())
                 elif self.path == "/speech/session":
                     self.reply(200, chat.speech_session())
                 else:
                     self.send_data(200, chat.synthesize(text.strip()), "audio/mpeg")
+            except VoiceUnavailable as error:
+                self.reply(503, {"error": str(error)})
             except BusyError:
                 self.reply(429, {"error": "Care Circle is answering another request. Please try again shortly."})
             except Exception as error:
@@ -256,7 +294,7 @@ def main():
     chat = OracleChat()
     host = os.environ.get("CARECIRCLE_HOST", "127.0.0.1")
     port = int(os.environ.get("CARECIRCLE_PORT", "8787"))
-    server = ThreadingHTTPServer((host, port), make_handler(chat, token))
+    server = ThreadingHTTPServer((host, port), make_handler(chat, token, ElevenLabsVoice()))
     print(f"Care Circle development bridge listening on {host}:{port}. No conversation logging.")
     try:
         server.serve_forever()

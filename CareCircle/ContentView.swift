@@ -9,7 +9,7 @@ private enum CareStyle {
 }
 
 struct ContentView: View {
-    @StateObject private var voice = OracleVoiceSession()
+    @StateObject private var voice = CareCircleVoiceSession()
     @State private var showMenu = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .title) private var greetingSize = 32
@@ -17,7 +17,7 @@ struct ContentView: View {
     private var openingText: String {
         switch voice.phase {
         case .idle, .connecting: return "Hi, what can I\nhelp with?"
-        case .listening: return voice.transcript.isEmpty ? "I’m listening." : voice.transcript
+        case .listening: return voice.isMuted ? "Microphone paused." : voice.transcript.isEmpty ? "I’m listening." : voice.transcript
         case .thinking: return voice.transcript
         case .speaking: return voice.reply
         case .failed: return voice.reply.isEmpty ? "Let’s try again." : voice.reply
@@ -28,7 +28,7 @@ struct ContentView: View {
         switch voice.phase {
         case .idle: return ""
         case .connecting: return "Connecting…"
-        case .listening: return "Listening"
+        case .listening: return voice.isMuted ? "Microphone paused" : "Listening"
         case .thinking: return "Thinking…"
         case .speaking: return "Care Circle is speaking"
         case .failed: return "Voice paused"
@@ -112,8 +112,8 @@ struct ContentView: View {
                     .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(voice.phase == .listening ? "Finish speaking" : "Speak to Care Circle")
-                .accessibilityHint("Starts Oracle voice. Tap again while listening to finish your message.")
+                .accessibilityLabel(voice.phase == .listening ? (voice.isMuted ? "Resume microphone" : "Pause microphone") : "Speak to Care Circle")
+                .accessibilityHint("Starts ElevenLabs voice. Speak naturally, or tap while listening to pause your microphone.")
                 .position(x: geometry.size.width / 2, y: geometry.size.height * (voice.isActive ? 0.59 : 0.68))
                 .animation(reduceMotion ? nil : .spring(response: 0.20, dampingFraction: 0.75), value: voice.bass)
                 .animation(reduceMotion ? nil : .spring(response: 0.20, dampingFraction: 0.75), value: voice.treble)
@@ -123,14 +123,14 @@ struct ContentView: View {
                         if let error = voice.error {
                             Text(error).font(.callout).multilineTextAlignment(.center).foregroundStyle(CareStyle.ink)
                         } else {
-                            Text(voice.phase == .listening ? "Pause when you’re done, or tap the circle." : "")
+                            Text(voice.phase == .listening ? "Speak naturally. You can interrupt me." : "")
                                 .font(.footnote).foregroundStyle(CareStyle.ink.opacity(0.65))
                         }
                         Button("End conversation") { voice.end() }
                             .font(.body.weight(.medium))
                             .foregroundStyle(CareStyle.burgundy)
                             .padding(.vertical, 12)
-                        Text("Voice is processed by Oracle while listening.")
+                        Text("Conversations use ElevenLabs. Visit transcripts use Oracle.")
                             .font(.caption).foregroundStyle(CareStyle.ink.opacity(0.65))
                     }
                     .padding(.horizontal, 28)
@@ -217,7 +217,7 @@ private struct MenuSheet: View {
 }
 
 private struct VisitRecordingView: View {
-    @ObservedObject var voice: OracleVoiceSession
+    @ObservedObject var voice: CareCircleVoiceSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
