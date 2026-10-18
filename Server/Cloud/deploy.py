@@ -64,6 +64,7 @@ server {
 }
 """
     files = [("/opt/carecircle/server.py", (ROOT / "Server/server.py").read_text(), "0644"),
+             ("/opt/carecircle/fixtures/appointments.json", (ROOT / "Server/fixtures/appointments.json").read_text(), "0644"),
              ("/etc/carecircle.env", environment, "0600"),
              ("/etc/systemd/system/carecircle.service", service, "0644"),
              ("/etc/nginx/conf.d/carecircle.conf", nginx, "0644")]
@@ -197,7 +198,7 @@ def main():
     print("Waiting for managed HTTPS gateway…", flush=True)
     result = oci.wait_until(gateway, gateway.get_gateway(gateway_id), "lifecycle_state", "ACTIVE", max_wait_seconds=900).data
     routes = []
-    for path, methods in [("/health", ["GET"]), ("/chat", ["POST"]), ("/speech/session", ["POST"]), ("/speech/synthesize", ["POST"]), ("/voice/session", ["POST"])]:
+    for path, methods in [("/health", ["GET"]), ("/appointments", ["GET"]), ("/chat", ["POST"]), ("/speech/session", ["POST"]), ("/speech/synthesize", ["POST"]), ("/voice/session", ["POST"])]:
         routes.append(oci.apigateway.models.ApiSpecificationRoute(path=path, methods=methods,
             backend=oci.apigateway.models.HTTPBackend(url=f"http://{private_ip}:8787{path}",
                 connect_timeout_in_seconds=10, read_timeout_in_seconds=70, send_timeout_in_seconds=10)))

@@ -223,6 +223,14 @@ def make_handler(chat, token, voice=None):
                 self.reply(401, {"error": "Connection token is incorrect."})
             elif self.path == "/health":
                 self.reply(200, {"status": "ready", "provider": "Oracle Cloud"})
+            elif self.path == "/appointments":
+                # Synthetic scheduling feed; replace this adapter when a real scheduler is connected.
+                try:
+                    data = json.loads((Path(__file__).parent / "fixtures/appointments.json").read_text())
+                except (OSError, ValueError):
+                    self.reply(503, {"error": "The demo appointment feed is unavailable."})
+                    return
+                self.reply(200, data)
             else:
                 self.reply(404, {"error": "Not found."})
 

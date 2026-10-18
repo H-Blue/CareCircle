@@ -92,6 +92,30 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request(path="/health")[0], 401)
         self.assertEqual(self.request(token=self.token, path="/health")[0], 200)
 
+    def test_mock_appointments_require_authentication(self):
+        self.assertEqual(self.request(path="/appointments")[0], 401)
+
+    def test_mock_schedule_preserves_dates_and_chicago_time(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        status, body = self.request(token=self.token, path="/appointments")
+        self.assertEqual(status, 200)
+        self.assertTrue(body["is_test_data"])
+        self.assertEqual(body["source"], "mock_scheduler")
+        appointments = body["appointments"]
+        self.assertEqual(len(appointments), 3)
+        expected = [("2026-11-03", 17, 19), ("2026-11-13", 14, 19), ("2026-12-02", 8, 12)]
+        self.assertEqual(len({item["id"] for item in appointments}), 3)
+        for item, (date, start_hour, end_hour) in zip(appointments, expected):
+            start = datetime.fromisoformat(item["start"])
+            end = datetime.fromisoformat(item["end"])
+            self.assertEqual(start.date().isoformat(), date)
+            self.assertEqual((start.hour, end.hour), (start_hour, end_hour))
+            self.assertGreater(end, start)
+            self.assertEqual(start.astimezone(ZoneInfo(item["time_zone"])).hour, start_hour)
+            self.assertTrue(item["is_test_data"])
+        self.chat.chat.assert_not_called()
+
     def test_speech_session_requires_authentication(self):
         status, _ = self.request({}, path="/speech/session")
         self.assertEqual(status, 401)

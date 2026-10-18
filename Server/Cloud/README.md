@@ -46,6 +46,8 @@ This writes an owner-only, ignored `CareCircle/LocalConnection.plist`. Debug bui
 
 The gateway includes `/voice/session` alongside the existing Oracle routes. Ending, backgrounding or audio interruptions stop ordinary conversation. A failed visit-transcription connection leaves local visit audio recording active with a visible gap warning. Legacy synthesis remains available to older builds.
 
+`GET /appointments` is also authenticated and serves the bundled [mock scheduling feed](../../Docs/MockAppointments.md). It contains three synthetic appointments, not real patient records. No calendar or messaging side effects occur when reading it.
+
 ## Verification
 
 The Swift app builds for the simulator; signal checks use real frequency-separated test tones. Backend tests cover authentication, message validation, scoped speech-session response shape, request bounds, and private error handling. Live service checks use a synthetic non-sensitive greeting to verify Oracle TTS and realtime transcription. A physical iPhone is still needed to assess microphone gain, Bluetooth routing, acoustic echo, and end-to-end conversational latency.

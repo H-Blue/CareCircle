@@ -1,5 +1,7 @@
 # Care Circle
 
+The Oracle backend also provides an authenticated [mock scheduling feed](Docs/MockAppointments.md) with three synthetic appointment slots for upcoming calendar and messaging integration work.
+
 A native SwiftUI iPhone and iPad starter app based on the supplied sketch.
 
 ## Open and run

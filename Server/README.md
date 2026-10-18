@@ -51,6 +51,10 @@ On a **physical iPhone**, use the [Oracle HTTPS deployment](Cloud/README.md). Th
 - Doctor-visit recording and retrieval is a separate future mode; normal voice conversations do not create saved recordings.
 - The home greeting remains local text; account setup and a successful live request are still required for AI replies.
 
+## Mock appointments
+
+Authenticated `GET /appointments` returns the three synthetic 2026 appointment slots hosted on Oracle. See [feed details](../Docs/MockAppointments.md) for dates, timezone and response fields. This is a development scheduling feed; it does not connect to Epic, send messages, or create calendar events.
+
 ## Verify
 
 ```sh

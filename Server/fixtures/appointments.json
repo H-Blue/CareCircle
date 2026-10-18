@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "source": "mock_scheduler",
+  "is_test_data": true,
+  "patient_id": "demo-patient-001",
+  "time_zone": "America/Chicago",
+  "appointments": [
+    {
+      "id": "demo-appointment-2026-11-03",
+      "title": "Demo appointment",
+      "status": "booked",
+      "start": "2026-11-03T17:00:00-06:00",
+      "end": "2026-11-03T19:00:00-06:00",
+      "time_zone": "America/Chicago",
+      "is_test_data": true
+    },
+    {
+      "id": "demo-appointment-2026-11-13",
+      "title": "Demo appointment",
+      "status": "booked",
+      "start": "2026-11-13T14:00:00-06:00",
+      "end": "2026-11-13T19:00:00-06:00",
+      "time_zone": "America/Chicago",
+      "is_test_data": true
+    },
+    {
+      "id": "demo-appointment-2026-12-02",
+      "title": "Demo appointment",
+      "status": "booked",
+      "start": "2026-12-02T08:00:00-06:00",
+      "end": "2026-12-02T12:00:00-06:00",
+      "time_zone": "America/Chicago",
+      "is_test_data": true
+    }
+  ]
+}
