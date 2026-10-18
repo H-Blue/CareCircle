@@ -140,7 +140,7 @@ class AccountTests(unittest.TestCase):
             with self.assertRaises(UserError): self.accounts.consent(friend["token"], {**payload, **invalid})
         result = self.accounts.consent(friend["token"], payload)
         self.assertTrue(result["active"])
-        self.assertFalse(result["transport_connected"])
+        self.assertTrue(result["transport_connected"])
         self.assertEqual(result["verified_phone"], friend["user"]["phone"])
         self.assertFalse(self.accounts.consent(owner["token"])["active"])
         self.assertNotIn(friend["user"]["phone"], json.dumps(self.accounts.me(owner["token"])))
@@ -203,3 +203,12 @@ class AccountHTTPTests(unittest.TestCase):
         self.assertEqual(self.request("/sms/consent", token=signed["token"])[0], 401)
         self.assertEqual(self.request("/users/logout", {}, signed["token"])[0], 200)
         self.assertEqual(self.request("/users/me", token=signed["token"])[0], 401)
+
+    def test_signed_in_members_have_independent_account_request_budgets(self):
+        tokens = []
+        for phone in ("+15555550123", "+15555550124"):
+            start = self.accounts.start(dict(name="Synthetic member", phone=phone))
+            tokens.append(self.accounts.check(dict(challenge=start["challenge"], code="654321"))["token"])
+        for _ in range(60): self.assertEqual(self.request("/users/me", token=tokens[0])[0], 200)
+        self.assertEqual(self.request("/users/me", token=tokens[0])[0], 429)
+        self.assertEqual(self.request("/users/me", token=tokens[1])[0], 200)

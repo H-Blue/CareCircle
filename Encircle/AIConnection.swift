@@ -197,6 +197,7 @@ struct SavedVisit: Codable, Identifiable {
     var partial = ""
     var duration: TimeInterval = 0
     var complete = false
+    var transportRequestedAt: Date?
     var summary: String?
     var summaryError: String?
     var transcriptionIssue: String?

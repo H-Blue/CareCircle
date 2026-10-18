@@ -134,12 +134,19 @@ class TwilioSender:
         return bool(self.account and self.token and PHONE.fullmatch(self.number) and self.public_url.startswith("https://"))
 
     def send(self, job):
+        return self._send(job, circle_authorized=False)
+
+    def send_circle(self, job):
+        # Called only after current account membership and explicit SMS consent checks.
+        return self._send(job, circle_authorized=True)
+
+    def _send(self, job, circle_authorized=False):
         from twilio.rest import Client
         from twilio.base.exceptions import TwilioRestException
         from twilio.http.http_client import TwilioHttpClient
         from urllib.parse import urlencode
         allowed = os.environ.get("TWILIO_ALLOWED_NUMBERS", "").split(",")
-        if not self.approval_status() or job["to"] not in allowed:
+        if not self.approval_status() or (not circle_authorized and job["to"] not in allowed):
             raise SendRejected("This demo sender or recipient is not enabled")
         try:
             client = Client(self.account, self.token, http_client=TwilioHttpClient(timeout=15, max_retries=0))

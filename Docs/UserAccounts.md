@@ -12,7 +12,7 @@ Accounts, verified phone identities, session hashes, circles, and memberships pe
 
 Recorded visits, transcripts, summaries and playback are now shared privately with current members of the selected circle; see [recording and migration](VisitRecordingPlan.md). The original single-owner synthetic scheduling feed, transport coordinator and calendar transport plan remain separate. Account tokens cannot access those legacy owner endpoints. Old phone recordings are shared only after the user chooses a destination circle; demo contacts are not automatically copied.
 
-Phone verification does not grant transport-SMS consent, configure trusted transport contacts, or send appointment requests. Signed-in users can save or withdraw consent for their verified phone number in **Your account → SMS consent & preferences**; the number is prefilled and cannot be replaced with someone else's. These records and their latest 10 changes persist privately in Oracle NoSQL. They do not enroll users into the legacy transport demo, which continues to use its separate owner consent.
+Phone verification does not grant transport-SMS consent, configure trusted transport contacts, or send appointment requests. Signed-in users can save or withdraw consent for their verified phone number in **Your account → SMS consent & preferences**; the number is prefilled and cannot be replaced with someone else's. These records and their latest 10 changes persist privately in Oracle NoSQL. They can authorize presentation transport when the circle leader enables it; they do not enroll users into the legacy transport demo, which continues to use its separate owner consent. See [presentation transport](PresentationTransport.md).
 
 ## Circle display and photos
 
@@ -24,7 +24,7 @@ In **Your account**, choose **Add profile picture** to select a photo from the s
 
 `TWILIO_VERIFY_SELF_SERVICE=1` enables user-requested sign-in codes for US/Canada numbers, independently of the transport recipient allowlist. Twilio's trial still requires verified recipient numbers: a person whose number has not been verified in Twilio cannot receive a trial sign-in code. Add each test number to Twilio's verified recipients with its owner's participation, or upgrade the account before general sign-in. Provider failures never become successful sign-ins. This does not bypass messaging rules or expand the transport-demo allowlist. No real verification text is sent by tests or provisioning.
 
-The prototype limits verification starts to five per UTC day globally, one per phone per minute, five checks per challenge, and a 10-minute code lifetime. The authenticated/public account routes share the backend's 30 requests/minute limit. Failed or uncertain send attempts consume a start slot to prevent repeat charges. Trial texts use Twilio Verify rather than the transport sender. Verify charges are additional to transport SMS.
+The prototype limits verification starts to five per UTC day globally, one per phone per minute, five checks per challenge, and a 10-minute code lifetime. Public sign-in endpoints share a 30 requests/minute limit. Signed-in account requests allow 60 per token per minute, with a 300-request global ceiling; the legacy owner endpoints use a separate budget. Failed or uncertain send attempts consume a start slot to prevent repeat charges. Trial texts use Twilio Verify rather than the transport sender. Verify charges are additional to transport SMS.
 
 ## Provision and deploy
 

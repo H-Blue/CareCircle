@@ -80,7 +80,8 @@ server {
  }
 }
 """
-    files = [("/opt/encircle/server.py", (ROOT / "Server/server.py").read_text(), "0644"),
+    files = [("/opt/encircle/circle_transport.py", (ROOT / "Server/circle_transport.py").read_text(), "0644"),
+             ("/opt/encircle/server.py", (ROOT / "Server/server.py").read_text(), "0644"),
              ("/opt/encircle/coordinator.py", (ROOT / "Server/coordinator.py").read_text(), "0644"),
              ("/opt/encircle/visits.py", (ROOT / "Server/visits.py").read_text(), "0644"),
              ("/opt/encircle/users.py", (ROOT / "Server/users.py").read_text(), "0644"),
@@ -240,7 +241,7 @@ def main():
     # Validate the complete payload before replacing the working backend.
     archive_buffer = io.BytesIO()
     with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
-        for relative in ("server.py", "coordinator.py", "users.py", "visits.py", "sms_consent.py", "requirements.txt", "fixtures/appointments.json"):
+        for relative in ("server.py", "coordinator.py", "users.py", "visits.py", "circle_transport.py", "sms_consent.py", "requirements.txt", "fixtures/appointments.json"):
             archive.add(ROOT / "Server" / relative, arcname=relative)
     source = archive_buffer.getvalue()
     source_hash = hashlib.sha256(source).hexdigest()
@@ -295,8 +296,8 @@ def main():
     routes = []
     user_routes = [("/users/me", ["GET"]), ("/users/sms/consent", ["GET", "POST"])] + [(p, ["POST"]) for p in (
         "/users/auth/start", "/users/auth/check", "/users/logout", "/users/profile", "/users/circles/create",
-        "/users/circles/join", "/users/circles/rotate", "/users/circles/leave")]
-    visit_routes = [("/visits/photo", ["GET", "POST"]), ("/visits", ["GET"]), ("/visits/detail", ["GET"]), ("/visits/audio/part", ["GET", "POST"])] + [(p, ["POST"]) for p in (
+        "/users/circles/join", "/users/circles/rotate", "/users/circles/leave", "/users/circles/presentation")]
+    visit_routes = [("/visits/transport/status", ["GET"]), ("/visits/transport/schedule", ["POST"]), ("/visits/photo", ["GET", "POST"]), ("/visits", ["GET"]), ("/visits/detail", ["GET"]), ("/visits/audio/part", ["GET", "POST"])] + [(p, ["POST"]) for p in (
         "/visits/save", "/visits/archive", "/visits/delete", "/visits/summary", "/visits/audio/start", "/visits/audio/finish", "/visits/speech/session", "/visits/voice/session")]
     for path, methods in visit_routes + user_routes + [("/health", ["GET"]), ("/appointments", ["GET", "POST"]), ("/coordinator", ["GET"]), ("/sms/consent", ["GET", "POST"]),
                           ("/coordinator/configure", ["POST"]), ("/coordinator/simulate", ["POST"]), ("/coordinator/check", ["POST"]),

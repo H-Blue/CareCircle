@@ -61,6 +61,7 @@ struct UserCircle: Decodable, Identifiable {
     let role: String
     let members: [CircleMember]
     let photo_revision: String?
+    let presentation_enabled: Bool?
     let invite_code: String?
 }
 
@@ -340,6 +341,9 @@ private struct UserCircleView: View {
                             revision: circle.photo_revision, circleID: circle.id)
                     }
                 }
+                Section("Presentation") {
+                    NavigationLink("Transport after recording") { PresentationTransportView(account: account, circleID: circle.id) }
+                }
                 Section("People") {
                     ForEach(circle.members) { member in
                         HStack { Text(member.name); Spacer(); Text(member.role.capitalized).foregroundStyle(.secondary) }
@@ -535,5 +539,97 @@ struct CareCircleDisplay: View {
         .fixedSize(horizontal: false, vertical: true)
         .frame(height: size, alignment: .top)
         .accessibilityElement(children: .ignore).accessibilityLabel(name + (patient ? ", receiving care" : ""))
+    }
+}
+
+private struct PresentationTransportView: View {
+    @ObservedObject var account: AccountStore
+    let circleID: String
+    @State private var status: TransportStatus?
+    @State private var error: String?
+    private var circle: UserCircle? { account.snapshot?.circles.first { $0.id == circleID } }
+    private struct TransportStatus: Decodable {
+        struct Member: Decodable { let name: String; let consent: Bool }
+        struct Event: Decodable { let visit_id: String; let due_at: Double; let state: String; let detail: String }
+        struct Message: Decodable, Identifiable {
+            let id: String; let name: String; let body: String; let state: String
+            let detail: String?; let response: String?; let source: String?
+        }
+        let enabled: Bool
+        let sms_approved: Bool
+        let members: [Member]
+        let events: [Event]
+        let messages: [Message]
+    }
+    var body: some View {
+        Form {
+            Section {
+                Text("Finish recording → wait 20 seconds → ask your circle for rides.")
+                Text("Presentation uses the cloud’s demo appointments. Requests arrive as SMS in Messages. The timer runs in Oracle even if you close the app.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                if let circle, circle.role == "leader" {
+                    Button(circle.presentation_enabled == true ? "Turn presentation transport off" : "Enable presentation transport") {
+                        Task {
+                            _ = await account.save("users/circles/presentation", ["circle_id": circleID,
+                                "enabled": circle.presentation_enabled == true ? "false" : "true"])
+                            await refresh()
+                        }
+                    }.disabled(account.busy)
+                }
+                NavigationLink("Your SMS consent & preferences") { SMSConsentView() }
+            } header: { Text("Presentation transport") }
+            if let status {
+                Section("Ready to send?") {
+                    Text(status.enabled ? "Recording trigger is on" : "Recording trigger is off")
+                    Text(status.sms_approved ? "Twilio sender approved" : "Blocked: Twilio sender approval is required")
+                        .foregroundStyle(status.sms_approved ? CareStyle.ink : CareStyle.burgundy)
+                    ForEach(Array(status.members.enumerated()), id: \.offset) { _, member in
+                        HStack { Text(member.name); Spacer(); Text(member.consent ? "Consent saved" : "Needs SMS consent").font(.caption) }
+                    }
+                }
+                if !status.events.isEmpty {
+                    Section("Recording triggers") {
+                        ForEach(Array(status.events.reversed().enumerated()), id: \.element.visit_id) { _, event in
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(event.state.replacingOccurrences(of: "_", with: " ").capitalized)
+                                Text(event.detail).font(.footnote)
+                                if event.state == "scheduled" {
+                                    Text(Date(timeIntervalSince1970: event.due_at), style: .relative).font(.caption)
+                                }
+                            }
+                        }
+                    }
+                }
+                if !status.messages.isEmpty {
+                    Section("Transport messages") {
+                        ForEach(status.messages.reversed()) { message in
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(message.name).font(.headline)
+                                Text(message.body).font(.footnote)
+                                Text((message.response ?? message.state).capitalized).foregroundStyle(CareStyle.burgundy)
+                                if let detail = message.detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
+                            }
+                        }
+                    }
+                }
+            }
+            if let error { Text(error).foregroundStyle(.red) }
+            if let error = account.error { Text(error).foregroundStyle(.red) }
+        }
+        .scrollContentBackground(.hidden).background(CareStyle.cream.ignoresSafeArea())
+        .navigationTitle("Presentation transport").navigationBarTitleDisplayMode(.inline)
+        .refreshable { await refresh() }
+        .task {
+            while !Task.isCancelled {
+                await refresh()
+                do { try await Task.sleep(for: .seconds(5)) } catch { break }
+            }
+        }
+    }
+    private func refresh() async {
+        do {
+            let data = try await VisitCloudClient(token: AccountCredential.read()).request("visits/transport/status", fields: ["circle_id": circleID])
+            status = try JSONDecoder().decode(TransportStatus.self, from: data); error = nil
+        } catch is CancellationError {} catch { self.error = error.localizedDescription }
     }
 }

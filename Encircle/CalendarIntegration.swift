@@ -609,7 +609,7 @@ struct SMSConsentView: View {
                         .disabled(busy || !agreed || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityIdentifier("Save SMS consent")
                 } footer: {
-                    Text(usingAccount ? "Consent applies to your verified sign-in number. Your agreement is saved privately. Saving consent does not enable transport messages or bypass Twilio approval." : "This is the original owner demo. To use another number, sign in above. Your name, number, agreement, and time are saved privately.")
+                    Text(usingAccount ? "Consent applies to your verified sign-in number. Your agreement is saved privately. Presentation transport can use this agreement when enabled by your circle leader. Twilio sender approval is still required." : "This is the original owner demo. To use another number, sign in above. Your name, number, agreement, and time are saved privately.")
                 }
                 if info.active, let receipt = info.receipt {
                     Section {
@@ -619,7 +619,7 @@ struct SMSConsentView: View {
                         }
                         Button("Withdraw SMS consent", role: .destructive) { Task { await submit(action: "withdraw") } }.disabled(busy)
                     } footer: {
-                        Text(usingAccount ? "You can withdraw your SMS agreement at any time. Your circle’s transport messages are not connected yet." : "Withdrawal prevents future queued texts. A message already submitted to the carrier may still arrive. Past ride confirmations remain available for review.")
+                        Text(usingAccount ? "You can withdraw your SMS agreement at any time. Withdrawal stops future queued presentation transport texts. A message already submitted may still arrive." : "Withdrawal prevents future queued texts. A message already submitted to the carrier may still arrive. Past ride confirmations remain available for review.")
                     }
                 }
                 if let status { Text(status).accessibilityIdentifier("SMS consent status") }
@@ -684,7 +684,7 @@ struct SMSConsentView: View {
             self.info = try JSONDecoder().decode(SMSConsentInfo.self, from: data)
             agreed = false
             if usingAccount {
-                status = action == "accept" ? "Your SMS consent is saved for your verified number. Circle transport messaging is not connected yet." : "Your SMS consent has been withdrawn."
+                status = action == "accept" ? "Your SMS consent is saved for your verified number. You can now receive presentation transport texts when your circle leader enables them and Twilio approves the sender." : "Your SMS consent has been withdrawn."
             } else {
                 status = action == "accept" ? "Your SMS consent is saved. Texts can begin once the sender is approved and your number is eligible." : "SMS consent withdrawn. Future queued texts are suppressed."
             }

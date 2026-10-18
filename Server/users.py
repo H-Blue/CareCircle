@@ -211,6 +211,7 @@ class Accounts:
             item = {k: c[k] for k in ("id", "name", "patient_name")}
             item["role"] = c["members"][uid]
             item["photo_revision"] = c.get("photo_revision")
+            item["presentation_enabled"] = bool(c.get("presentation_enabled"))
             item["members"] = [{"id": mid, "name": data["users"][mid]["name"], "role": role, "photo_revision": data["users"][mid].get("photo_revision")} for mid, role in c["members"].items()]
             # Only the leader receives the join code; never expose other members' phone numbers.
             if item["role"] == "leader": item["invite_code"] = c["invite_code"]
@@ -230,6 +231,31 @@ class Accounts:
                 raise UserError("This circle is not available to your account.", 403)
             return uid, circle["members"][uid]
         return self.store.update(read)
+
+    def transport_circle(self, circle_id):
+        def read(data):
+            c = data["circles"].get(circle_id)
+            if not c: return None
+            people = []
+            for uid, role in c["members"].items():
+                u = data["users"][uid]; receipt = u.get("sms_consent") or {}
+                people.append({"id": uid, "name": u["name"], "phone": u["phone"], "role": role,
+                    "consent": bool(receipt.get("active") and receipt.get("version") == sms_consent.VERSION and not u.get("sms_stopped"))})
+            return {"name": c["name"], "patient_name": c["patient_name"],
+                "enabled": bool(c.get("presentation_enabled")), "people": people}
+        return self.store.update(read)
+
+    def sms_stop(self, phone, stopped=True):
+        def change(data):
+            for u in data["users"].values():
+                receipt = u.get("sms_consent")
+                if u["phone"] == phone: u["sms_stopped"] = stopped
+                if stopped and u["phone"] == phone and receipt and receipt.get("active"):
+                    receipt["active"] = False
+                    receipt["revoked_at"] = datetime.fromtimestamp(self.clock(), timezone.utc).isoformat(timespec="seconds")
+                    u.setdefault("sms_consent_history", []).append(copy.deepcopy(receipt))
+                    u["sms_consent_history"] = u["sms_consent_history"][-10:]
+        self.store.update(change)
 
     def photo_target(self, token, circle_id=None, member_id="me", revision=None, check_write=False):
         def access(data):
@@ -289,7 +315,7 @@ class Accounts:
                 "disclosure": sms_consent.DISCLOSURE, "checkbox_label": sms_consent.CHECKBOX,
                 "privacy_url": sms_consent.PRIVACY_URL, "terms_url": sms_consent.TERMS_URL, "proof_url": sms_consent.PROOF_URL,
                 "active": bool(receipt and receipt["active"] and receipt["version"] == sms_consent.VERSION),
-                "opted_out_by_sms": False, "transport_connected": False,
+                "opted_out_by_sms": bool(user.get("sms_stopped")), "transport_connected": True,
                 "verified_name": user["name"], "verified_phone": user["phone"],
                 "receipt": {k: receipt[k] for k in ("id", "name", "phone", "accepted_at", "revoked_at", "version") if k in receipt} if receipt else None}
         return self.store.update(change)
@@ -321,6 +347,11 @@ class Accounts:
                     if len(c["members"]) >= 20 or sum(uid in x["members"] for x in data["circles"].values()) >= 10:
                         raise UserError("The prototype’s membership limit has been reached.")
                     c["members"][uid] = role
+            elif path == "/users/circles/presentation":
+                c = data["circles"].get(payload.get("circle_id"))
+                if not c or c["members"].get(uid) != "leader": raise UserError("Only the circle leader can change presentation transport.", 403)
+                if payload.get("enabled") not in ("true", "false"): raise UserError("Choose enable or disable.")
+                c["presentation_enabled"] = payload["enabled"] == "true"
             elif path == "/users/circles/rotate":
                 c = data["circles"].get(payload.get("circle_id"))
                 if not c or c["members"].get(uid) != "leader": raise UserError("Only the circle leader can replace this invitation code.", 403)

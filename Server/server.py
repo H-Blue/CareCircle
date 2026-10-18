@@ -193,6 +193,7 @@ def make_handler(chat, token, voice=None, coordinator=None, accounts=None, cloud
     rate_lock = threading.Lock()
     requests = []
     visit_requests = []
+    account_requests = []
 
     class Handler(BaseHTTPRequestHandler):
         # Do not log URLs, health questions, auth headers, or Oracle error bodies.
@@ -250,7 +251,13 @@ def make_handler(chat, token, voice=None, coordinator=None, accounts=None, cloud
                         if not isinstance(payload, dict): raise UserError("Invalid visit request.")
                     elif self.headers.get_content_type() != "application/octet-stream": raise UserError("Expected recording bytes.")
                 circle = query.get("circle_id")
-                if parsed.path == "/visits/photo":
+                if parsed.path in ("/visits/transport/schedule", "/visits/transport/status"):
+                    transport = getattr(cloud_visits, "transport", None)
+                    if transport is None: raise UserError("Circle transport is being configured.", 503)
+                    if post and parsed.path == "/visits/transport/schedule": result = transport.schedule(session, payload)
+                    elif not post and parsed.path == "/visits/transport/status": result = transport.status(session, circle)
+                    else: raise UserError("Not found.", 404)
+                elif parsed.path == "/visits/photo":
                     result = cloud_visits.photo(session, circle, query.get("member_id", "me"), raw if post else None)
                     if not post:
                         self.send_data(200, result, "image/jpeg"); return
@@ -281,17 +288,20 @@ def make_handler(chat, token, voice=None, coordinator=None, accounts=None, cloud
             except Exception: self.reply(503, {"error": "Circle visit storage is temporarily unavailable. Your phone’s upload copy must be kept; please retry."})
 
         def account_request(self, post=False):
-            from users import UserError
+            from users import UserError, digest
             if accounts is None:
                 self.reply(503, {"error": "Phone sign-in is being configured. Please try again later."}); return
             try:
-                with rate_lock:
-                    now = time.monotonic()
-                    requests[:] = [t for t in requests if now - t < 60]
-                    if len(requests) >= 30: raise UserError("Please wait a minute and try again.", 429)
-                    requests.append(now)
                 bearer = self.headers.get("Authorization", "")
                 session = bearer[7:] if bearer.startswith("Bearer ") else ""
+                public = self.path in ("/users/auth/start", "/users/auth/check") or not session
+                key = "public" if public else digest(session)
+                with rate_lock:
+                    now = time.monotonic()
+                    account_requests[:] = [(t, who) for t, who in account_requests if now - t < 60]
+                    if len(account_requests) >= 300 or sum(who == key for _, who in account_requests) >= (30 if public else 60):
+                        raise UserError("Please wait a minute and try again.", 429)
+                    account_requests.append((now, key))
                 payload = {}
                 if post:
                     length = int(self.headers.get("Content-Length", "0"))
@@ -303,7 +313,7 @@ def make_handler(chat, token, voice=None, coordinator=None, accounts=None, cloud
                 elif self.path == "/users/me" and not post: result = accounts.me(session)
                 elif self.path == "/users/auth/start" and post: result = accounts.start(payload)
                 elif self.path == "/users/auth/check" and post: result = accounts.check(payload)
-                elif post and self.path in ("/users/logout", "/users/profile", "/users/circles/create", "/users/circles/join", "/users/circles/rotate", "/users/circles/leave"):
+                elif post and self.path in ("/users/logout", "/users/profile", "/users/circles/create", "/users/circles/join", "/users/circles/rotate", "/users/circles/leave", "/users/circles/presentation"):
                     result = accounts.action(session, self.path, payload)
                 else: raise UserError("Not found.", 404)
                 self.reply(200, result)
@@ -356,10 +366,14 @@ def make_handler(chat, token, voice=None, coordinator=None, accounts=None, cloud
                 if route.path == "/twilio/inbound":
                     if params.get("To") != coordinator.sender.number: raise ValueError()
                     coordinator.inbound(params.get("From", ""), params.get("Body", ""), params.get("MessageSid", ""), params.get("OptOutType"))
+                    transport = getattr(cloud_visits, "transport", None)
+                    if transport: transport.inbound(params.get("From", ""), params.get("Body", ""), params.get("MessageSid", ""), params.get("OptOutType"))
                 else:
                     query = urllib.parse.parse_qs(route.query)
                     if set(query) != {"job"} or len(query["job"]) != 1 or params.get("From") != coordinator.sender.number: raise ValueError()
-                    coordinator.callback(query["job"][0], params)
+                    transport = getattr(cloud_visits, "transport", None)
+                    if transport and query["job"][0].startswith("circle-"): transport.callback(query["job"][0], params)
+                    else: coordinator.callback(query["job"][0], params)
                 self.send_data(200, b'<?xml version="1.0" encoding="UTF-8"?><Response/>', "application/xml")
             except (ValueError, UnicodeDecodeError): self.reply(400, {"error": "Invalid messaging event."})
             except Exception: self.reply(503, {"error": "Messaging event couldn’t be saved. Please retry."})
@@ -473,6 +487,10 @@ def main():
     if accounts is not None and os.environ.get("ENCIRCLE_VISITS_BUCKET"):
         from visits import CloudVisits, OracleObjects
         cloud_visits = CloudVisits(accounts, OracleObjects(), chat)
+        if coordinator is not None:
+            from circle_transport import CircleTransport
+            cloud_visits.transport = CircleTransport(coordinator, accounts, cloud_visits, planner=chat)
+            cloud_visits.transport.start()
     server = ThreadingHTTPServer((host, port), make_handler(chat, token, ElevenLabsVoice(), coordinator, accounts, cloud_visits))
     print(f"Encircle development bridge listening on {host}:{port}. No conversation logging.")
     try:

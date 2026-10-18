@@ -489,6 +489,10 @@ final class EncircleVoiceSession: NSObject, ObservableObject {
     func finishVisit(interrupted: Bool = false, message: String? = nil) {
         guard activeVisit != nil, !finishingVisit else { return }
         finishingVisit = true
+        if !interrupted, let id = activeVisit?.id {
+            activeVisit?.transportRequestedAt = Date()
+            visits.requestPresentationTransport(id)
+        }
         let background = UIApplication.shared.beginBackgroundTask(withName: "Save visit")
         let turn = generation
         // Keep receiving briefly so Oracle can finalize the last words before saving.

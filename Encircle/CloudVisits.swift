@@ -290,6 +290,14 @@ extension VisitStore {
         summarizing = Set(visits.filter { $0.cloudSummaryPending == true }.map(\.id))
     }
 
+    func requestPresentationTransport(_ id: UUID) {
+        guard let context = cloudContext else { return }
+        Task {
+            _ = try? await VisitCloudClient(token: context.token).post("visits/transport/schedule",
+                ["circle_id": context.circleID, "visit_id": id.uuidString])
+        }
+    }
+
     func startCloudSync() {
         guard syncTask == nil, let context = cloudContext,
               visits.contains(where: { $0.cloudPending == true && $0.finalized == true && $0.creatorID == context.userID }) else { return }
@@ -305,6 +313,9 @@ extension VisitStore {
                     var visit = original
                     let record = try await (visit.cloudRevision == nil ? client.save(visit, circle: context.circleID) : client.detail(circle: context.circleID, visit: visit.id))
                     guard cloudContext == context else { return }
+                    if visit.transportRequestedAt != nil && visit.complete {
+                        _ = try await client.post("visits/transport/schedule", ["circle_id": context.circleID, "visit_id": visit.id.uuidString])
+                    }
                     visit.cloudRevision = record.revision; visit.summary = record.visit.summary
                     try save(visit)
                     if !visit.transcriptText.isEmpty && record.visit.summary == nil && !record.summary_pending {
