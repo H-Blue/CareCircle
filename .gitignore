@@ -1,0 +1,14 @@
+.DS_Store
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.pem
+*.key
+Preview/Oracle-*.png
+linkedin-reply-assistant/

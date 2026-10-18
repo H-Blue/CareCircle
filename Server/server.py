@@ -1,0 +1,201 @@
+"""Local development bridge to OCI Generative AI. No chat persistence or payload logging."""
+
+import hmac
+import json
+import os
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+SYSTEM_PROMPT = """You are Care Circle, a calm, warm healthcare and wellbeing assistant.
+Keep spoken answers concise, clear, and useful. Ask one relevant follow-up question when needed.
+Help people organize questions for clinicians and think through everyday wellbeing needs.
+Provide general information, not diagnoses, prescriptions, or changes to medication.
+Do not claim to know personal health records, appointments, or measurements not provided.
+For urgent or life-threatening symptoms, advise immediate local emergency care.
+Never claim to have booked, contacted, monitored, or completed an action you cannot perform."""
+
+
+def load_environment(path):
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        if line.strip() and not line.lstrip().startswith("#"):
+            key, sep, value = line.partition("=")
+            if sep:
+                os.environ.setdefault(key.strip(), value.strip())
+
+
+def validate_messages(payload):
+    messages = payload.get("messages") if isinstance(payload, dict) else None
+    if not isinstance(messages, list) or not 1 <= len(messages) <= 20:
+        raise ValueError("Send between 1 and 20 messages.")
+    result = []
+    for index, message in enumerate(messages):
+        if not isinstance(message, dict):
+            raise ValueError("Invalid message.")
+        expected = "user" if index % 2 == 0 else "assistant"
+        content = message.get("content")
+        if message.get("role") != expected or not isinstance(content, str) or not content.strip() or len(content) > 4000:
+            raise ValueError("Messages must alternate user and assistant and contain 1–4000 characters.")
+        result.append({"role": expected, "content": content.strip()})
+    if result[-1]["role"] != "user":
+        raise ValueError("The final message must be from the user.")
+    return result
+
+
+class OracleChat:
+    def __init__(self):
+        import oci
+        self.oci = oci
+        self.compartment = os.environ["OCI_COMPARTMENT_ID"]
+        self.model = os.environ["OCI_MODEL_ID"]
+        self.format = os.environ.get("OCI_CHAT_FORMAT", "COHERE")
+        if self.format not in {"COHERE", "GENERIC"}:
+            raise ValueError("OCI_CHAT_FORMAT must be COHERE or GENERIC.")
+        region = os.environ.get("OCI_REGION", "us-chicago-1")
+        config = oci.config.from_file(
+            str(Path(os.environ.get("OCI_CONFIG_FILE", "~/.oci/config")).expanduser()),
+            os.environ.get("OCI_PROFILE", "DEFAULT"),
+        )
+        config["region"] = region
+        self.client = oci.generative_ai_inference.GenerativeAiInferenceClient(
+            config,
+            service_endpoint=f"https://inference.generativeai.{region}.oci.oraclecloud.com",
+            retry_strategy=oci.retry.NoneRetryStrategy(),
+            timeout=(10, 90),
+        )
+        # Serialize calls for this personal development bridge and bound model usage.
+        self.lock = threading.Lock()
+
+    def chat(self, messages):
+        models = self.oci.generative_ai_inference.models
+        if self.format == "COHERE":
+            history = [
+                models.CohereUserMessage(message=m["content"]) if m["role"] == "user"
+                else models.CohereChatBotMessage(message=m["content"])
+                for m in messages[:-1]
+            ]
+            request = models.CohereChatRequest(
+                message=messages[-1]["content"], chat_history=history,
+                preamble_override=SYSTEM_PROMPT, max_tokens=600, temperature=0.4,
+                is_stream=False,
+            )
+        else:
+            history = [models.SystemMessage(content=[models.TextContent(text=SYSTEM_PROMPT)])]
+            for message in messages:
+                cls = models.UserMessage if message["role"] == "user" else models.AssistantMessage
+                history.append(cls(content=[models.TextContent(text=message["content"])]))
+            request = models.GenericChatRequest(messages=history, max_tokens=600, temperature=0.4, is_stream=False)
+        details = models.ChatDetails(
+            compartment_id=self.compartment,
+            serving_mode=models.OnDemandServingMode(model_id=self.model),
+            chat_request=request,
+        )
+        if not self.lock.acquire(blocking=False):
+            raise BusyError()
+        try:
+            response = self.client.chat(details).data.chat_response
+        finally:
+            self.lock.release()
+        if self.format == "COHERE":
+            text = response.text
+        else:
+            text = "\n".join(c.text for c in response.choices[0].message.content if getattr(c, "text", None))
+        if not text or not text.strip():
+            raise ValueError("Oracle returned an empty response.")
+        return text.strip()
+
+
+class BusyError(Exception):
+    pass
+
+
+def make_handler(chat, token):
+    class Handler(BaseHTTPRequestHandler):
+        # Do not log URLs, health questions, auth headers, or Oracle error bodies.
+        def log_message(self, *args):
+            pass
+
+        def setup(self):
+            super().setup()
+            self.connection.settimeout(15)
+
+        def reply(self, status, body):
+            data = json.dumps(body).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def authenticated(self):
+            supplied = self.headers.get("Authorization", "").encode()
+            return hmac.compare_digest(supplied, f"Bearer {token}".encode())
+
+        def do_GET(self):
+            if not self.authenticated():
+                self.reply(401, {"error": "Connection token is incorrect."})
+            elif self.path == "/health":
+                self.reply(200, {"status": "ready", "provider": "Oracle Cloud"})
+            else:
+                self.reply(404, {"error": "Not found."})
+
+        def do_POST(self):
+            if not self.authenticated():
+                self.reply(401, {"error": "Connection token is incorrect."})
+                return
+            if self.path != "/chat":
+                self.reply(404, {"error": "Not found."})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 65536 or self.headers.get("Transfer-Encoding"):
+                    raise ValueError("Request is too large or empty.")
+                if self.headers.get_content_type() != "application/json":
+                    raise ValueError("Expected JSON.")
+                messages = validate_messages(json.loads(self.rfile.read(length)))
+            except (ValueError, UnicodeDecodeError):
+                self.reply(400, {"error": "Invalid conversation. Please start a new conversation."})
+                return
+            try:
+                self.reply(200, {"reply": chat.chat(messages)})
+            except BusyError:
+                self.reply(429, {"error": "Care Circle is answering another request. Please try again shortly."})
+            except Exception as error:
+                status = getattr(error, "status", 0)
+                if status == 429:
+                    self.reply(429, {"error": "Oracle’s usage limit was reached. Please try again later."})
+                elif status in (401, 403, 404):
+                    self.reply(503, {"error": "Oracle account access needs attention on the server."})
+                else:
+                    self.reply(502, {"error": "Oracle is unavailable right now. Please try again."})
+
+    return Handler
+
+
+def main():
+    load_environment(Path(__file__).with_name(".env"))
+    required = ["OCI_COMPARTMENT_ID", "OCI_MODEL_ID", "CARECIRCLE_APP_TOKEN"]
+    missing = [key for key in required if not os.environ.get(key)]
+    if missing:
+        raise SystemExit("Configure Server/.env first. Missing: " + ", ".join(missing))
+    token = os.environ["CARECIRCLE_APP_TOKEN"]
+    if len(token) < 32:
+        raise SystemExit("CARECIRCLE_APP_TOKEN must contain at least 32 characters.")
+    chat = OracleChat()
+    host = os.environ.get("CARECIRCLE_HOST", "127.0.0.1")
+    port = int(os.environ.get("CARECIRCLE_PORT", "8787"))
+    server = ThreadingHTTPServer((host, port), make_handler(chat, token))
+    print(f"Care Circle development bridge listening on {host}:{port}. No conversation logging.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
