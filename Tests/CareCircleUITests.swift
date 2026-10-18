@@ -1,6 +1,35 @@
 import XCTest
 
 final class CareCircleUITests: XCTestCase {
+    func testSMSConsentStartsUncheckedAndShowsActualDisclosure() {
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["Open menu"].tap()
+        app.buttons["Apple Calendar & transport"].tap()
+        app.buttons["SMS consent & preferences"].tap()
+        XCTAssertTrue(app.staticTexts["SMS disclosure"].waitForExistence(timeout: 30))
+        let disclosure = app.staticTexts["SMS disclosure"].label
+        XCTAssertTrue(disclosure.contains("Message and data rates may apply"))
+        XCTAssertTrue(disclosure.contains("STOP")); XCTAssertTrue(disclosure.contains("HELP"))
+        let top = XCTAttachment(screenshot: app.screenshot())
+        top.name = "CareCircle-SMS-disclosure"; top.lifetime = .keepAlways; add(top)
+        let checkbox = app.buttons["SMS consent checkbox"]
+        for _ in 0..<3 { if checkbox.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(checkbox.isHittable)
+        XCTAssertEqual(checkbox.value as? String, "Unchecked")
+        let save = app.buttons["Save SMS consent"]
+        XCTAssertFalse(save.isEnabled)
+        XCTAssertEqual(app.textFields["SMS consent name"].value as? String, "Your name")
+        XCTAssertEqual(app.textFields["SMS consent phone"].value as? String, "Your mobile number")
+        let blank = XCTAttachment(screenshot: app.screenshot())
+        blank.name = "CareCircle-SMS-blank-opt-in"; blank.lifetime = .keepAlways; add(blank)
+        checkbox.tap()
+        XCTAssertEqual(checkbox.value as? String, "Checked")
+        XCTAssertFalse(save.isEnabled)
+        checkbox.tap()
+        XCTAssertEqual(checkbox.value as? String, "Unchecked")
+        // Deliberately do not submit: a UI test must not fabricate the owner's consent.
+    }
     func testCoordinatorShowsCloudPlansAndSimulationMode() {
         let app = XCUIApplication()
         app.launch()

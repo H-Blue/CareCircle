@@ -66,7 +66,7 @@ struct CareCircleAPI {
         throw ConnectionError.message("Use an HTTPS server address to protect your conversations.")
     }
 
-    func request(_ path: String, messages: [ChatMessage]? = nil, text: String? = nil, post: Bool = false, payload: [String: String]? = nil) async throws -> Data {
+    func request(_ path: String, messages: [ChatMessage]? = nil, text: String? = nil, post: Bool = false, payload: [String: String]? = nil, json: Data? = nil) async throws -> Data {
         let base = try Self.validatedURL(address)
         guard !token.isEmpty else { throw ConnectionError.message("Add your connection token in the menu first.") }
         var request = URLRequest(url: base.appendingPathComponent(path))
@@ -78,10 +78,10 @@ struct CareCircleAPI {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(["messages": messages])
         }
-        if post || text != nil || payload != nil {
+        if post || text != nil || payload != nil || json != nil {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: payload ?? text.map { ["text": $0] } ?? [:])
+            request.httpBody = try json ?? JSONSerialization.data(withJSONObject: payload ?? text.map { ["text": $0] } ?? [:])
         }
         let configuration = URLSessionConfiguration.ephemeral
         let session = URLSession(configuration: configuration)

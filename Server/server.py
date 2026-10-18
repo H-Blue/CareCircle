@@ -223,6 +223,9 @@ def make_handler(chat, token, voice=None, coordinator=None):
                 self.reply(401, {"error": "Connection token is incorrect."})
             elif self.path == "/health":
                 self.reply(200, {"status": "ready", "provider": "Oracle Cloud"})
+            elif self.path == "/sms/consent" and coordinator is not None:
+                try: self.reply(200, coordinator.consent_info())
+                except Exception: self.reply(503, {"error": "SMS preferences are temporarily unavailable."})
             elif self.path == "/coordinator" and coordinator is not None:
                 try: self.reply(200, coordinator.snapshot())
                 except Exception: self.reply(503, {"error": "The care coordinator is temporarily unavailable."})
@@ -270,7 +273,7 @@ def make_handler(chat, token, voice=None, coordinator=None):
             if not self.authenticated():
                 self.reply(401, {"error": "Connection token is incorrect."})
                 return
-            if self.path not in ("/chat", "/speech/session", "/speech/synthesize", "/voice/session", "/appointments", "/coordinator/configure", "/coordinator/simulate", "/coordinator/check"):
+            if self.path not in ("/chat", "/speech/session", "/speech/synthesize", "/voice/session", "/appointments", "/coordinator/configure", "/coordinator/simulate", "/coordinator/check", "/sms/consent"):
                 self.reply(404, {"error": "Not found."})
                 return
             try:
@@ -297,11 +300,12 @@ def make_handler(chat, token, voice=None, coordinator=None):
                     if len(requests) >= 30:
                         raise BusyError()
                     requests.append(now)
-                if self.path in ("/appointments", "/coordinator/configure", "/coordinator/simulate", "/coordinator/check"):
+                if self.path in ("/appointments", "/coordinator/configure", "/coordinator/simulate", "/coordinator/check", "/sms/consent"):
                     if coordinator is None:
                         self.reply(503, {"error": "The care coordinator is not configured."}); return
                     try:
-                        if self.path == "/appointments": result = coordinator.upsert(payload)
+                        if self.path == "/sms/consent": result = coordinator.save_sms_consent(payload)
+                        elif self.path == "/appointments": result = coordinator.upsert(payload)
                         elif self.path == "/coordinator/configure": result = coordinator.configure(payload)
                         elif self.path == "/coordinator/check":
                             coordinator.wake.set(); result = {"queued": True}
@@ -313,7 +317,9 @@ def make_handler(chat, token, voice=None, coordinator=None):
                             import uuid
                             result = coordinator.inbound(offer["phone"], payload["reply"] + " " + offer["code"], "simulation-" + uuid.uuid4().hex)
                         self.reply(200, result)
-                    except (ValueError, TypeError, KeyError): self.reply(400, {"error": "Invalid coordinator request. Check the appointment, mode, and consent details."})
+                    except (ValueError, TypeError, KeyError) as error:
+                        detail = str(error) if self.path == "/sms/consent" and isinstance(error, ValueError) else "Invalid coordinator request. Check the appointment, mode, and consent details."
+                        self.reply(400, {"error": detail})
                 elif self.path == "/chat":
                     self.reply(200, {"reply": chat.chat(messages)})
                 elif self.path == "/voice/session":

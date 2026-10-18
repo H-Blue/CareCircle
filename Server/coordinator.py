@@ -10,9 +10,11 @@ import os
 import re
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+import sms_consent
 
 LEGS = ("outbound", "return")
 PHONE = re.compile(r"\+[1-9][0-9]{7,14}\Z")
@@ -170,6 +172,74 @@ class Coordinator:
     def audit(state, kind, now, **fields):
         state["activity"].append({"kind": kind, "at": now, **fields})
         state["activity"] = state["activity"][-200:]
+
+    def consent_info(self):
+        state = self.store.read()
+        allowed = [n for n in os.environ.get("TWILIO_ALLOWED_NUMBERS", "").split(",") if PHONE.fullmatch(n)]
+        receipt = state.get("sms_consents", {}).get(allowed[0]) if len(allowed) == 1 else None
+        opted_out = any(p.get("opted_out") for p in state["circle"]["contacts"] + ([state["circle"]["leader"]] if state["circle"].get("leader") else []) if receipt and p["phone"] == receipt["phone"])
+        return {"program": sms_consent.PROGRAM, "version": sms_consent.VERSION,
+                "disclosure": sms_consent.DISCLOSURE, "checkbox_label": sms_consent.CHECKBOX,
+                "privacy_url": sms_consent.PRIVACY_URL, "terms_url": sms_consent.TERMS_URL,
+                "proof_url": sms_consent.PROOF_URL, "owner_demo_only": True,
+                "active": bool(receipt and receipt["active"] and receipt["version"] == sms_consent.VERSION),
+                "opted_out_by_sms": opted_out,
+                "receipt": {k: receipt[k] for k in ("id", "name", "phone", "accepted_at", "revoked_at", "version") if k in receipt} if receipt else None}
+
+    @staticmethod
+    def has_sms_consent(state, phone):
+        receipt = state.get("sms_consents", {}).get(phone)
+        return bool(receipt and receipt["active"] and receipt["version"] == sms_consent.VERSION)
+
+    def save_sms_consent(self, payload):
+        action = payload.get("action")
+        if action not in ("accept", "withdraw"): raise ValueError("Choose accept or withdraw")
+        raw_phone = payload.get("phone")
+        if not isinstance(raw_phone, str) or len(raw_phone) > 30: raise ValueError("Enter your phone number")
+        if re.search(r"[^0-9+() .-]", raw_phone): raise ValueError("Invalid phone number")
+        phone = re.sub(r"[^0-9+]", "", raw_phone)
+        if len(phone) == 10 and phone.isdigit(): phone = "+1" + phone
+        elif len(phone) == 11 and phone.startswith("1") and phone.isdigit(): phone = "+" + phone
+        allowed = os.environ.get("TWILIO_ALLOWED_NUMBERS", "").split(",")
+        if not PHONE.fullmatch(phone) or phone not in allowed: raise ValueError("This personal demo accepts only the owner's configured number")
+        name = payload.get("name", "")
+        if action == "accept" and (payload.get("accepted") is not True or payload.get("version") != sms_consent.VERSION or
+                not isinstance(name, str) or not 1 <= len(name.strip()) <= 80 or any(c in name for c in "\r\n")):
+            raise ValueError("Read the current disclosure and explicitly agree with your own name")
+        now = self.clock(); timestamp = datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds"); ident = uuid.uuid4().hex
+        def change(state):
+            people = state["circle"]["contacts"] + ([state["circle"]["leader"]] if state["circle"].get("leader") else [])
+            roles = [p for p in people if p["phone"] == phone]
+            if not roles: raise ValueError("This number must belong to the configured circle")
+            records = state.setdefault("sms_consents", {})
+            previous = records.get(phone)
+            if action == "accept":
+                if previous and previous["active"] and previous["version"] == sms_consent.VERSION and previous["name"] == name.strip(): return
+                records[phone] = {"id": ident, "phone": phone, "name": name.strip(), "active": True,
+                    "accepted_at": timestamp, "version": sms_consent.VERSION, "disclosure": sms_consent.DISCLOSURE,
+                    "source": "ios_app", "auth_context": "single_owner_connection"}
+                # Accepting in-app never clears a provider STOP; the person must text START.
+                for p in roles: p["consent"] = True
+                if previous and not previous["active"]:
+                    state["circle"]["epoch"] += 1
+            else:
+                if not previous or not previous["active"]: return
+                records[phone] = {**previous, "active": False, "revoked_at": timestamp}
+                for p in roles: p["consent"] = False
+                for job in state["jobs"].values():
+                    if job["to"] == phone and job["state"] == "pending": job["state"] = "suppressed"
+                for offer in state["offers"].values():
+                    if offer["phone"] == phone and offer["state"] in ("queued", "waiting", "uncertain"): offer["state"] = "consent_withdrawn"
+                for record in state["appointments"].values():
+                    for trip in record["trips"].values():
+                        if trip.get("driver") and trip["driver"]["phone"] == phone: trip["state"] = "needs_review"
+            events = state.setdefault("sms_consent_events", [])
+            events.append({"id": ident, "phone": phone, "action": action, "at": timestamp, "version": sms_consent.VERSION, "source": "ios_app"})
+            state["sms_consent_events"] = events[-1000:]
+            self.audit(state, "sms_consent_" + action, now)
+        self.store.update(change)
+        self.wake.set()
+        return self.consent_info()
 
     def configure(self, payload):
         mode = payload.get("mode", "paused")
@@ -409,6 +479,8 @@ class Coordinator:
                 if c["mode"] == "paused": return None
                 if not self._eligible(state, job): job["state"] = "superseded"; return None
                 if c["mode"] == "live":
+                    if not self.has_sms_consent(state, job["to"]):
+                        job["blocked_reason"] = "In-app SMS consent required"; return None
                     if not self.sender.ready: return None
                     a = state["appointments"][job["appointment_id"]]["appointment"]
                     if a["is_test_data"] and not c["allow_demo_sms"]:
@@ -483,10 +555,12 @@ class Coordinator:
             if not match:
                 pending = next((o for o in state["offers"].values() if o["phone"] == phone and o["state"] in ("waiting", "uncertain")
                                 and o["epoch"] == c["epoch"] and o["revision"] == state["appointments"][o["appointment_id"]]["revision"]), None)
-                if pending and c["mode"] != "paused":
-                    record = state["appointments"][pending["appointment_id"]]
+                record = state["appointments"].get(pending["appointment_id"]) if pending else next(iter(state["appointments"].values()), None) if command == "HELP" else None
+                if record and c["mode"] != "paused":
                     key = "help-" + hashlib.sha256(phone.encode()).hexdigest()[:12] + "-" + str(int(now // 3600))
-                    self._job(state, key, phone, "Care Circle DEMO: To accept a ride, reply YES followed by its request code; to decline, reply NO and the code. Each direction has its own code. STOP to opt out.", "help", record, now)
+                    message = "Care Circle DEMO: To accept a ride, reply YES followed by its request code; to decline, reply NO and the code. Each direction has its own code. STOP to opt out."
+                    if command == "HELP": message = "Care Circle DEMO help: Manage texts in the app's SMS consent & preferences. Ride replies use YES/NO plus the request code. STOP to opt out. Support: github.com/H-Blue/CareCircle/issues (no private information)."
+                    self._job(state, key, phone, message, "help", record, now)
                 return {"result": "help" if command == "HELP" else "needs_explicit_reply"}
             intent, code = match.groups(); code = code.upper()
             offer = state["offers"].get(code)
@@ -589,6 +663,7 @@ class Coordinator:
         allowed = os.environ.get("TWILIO_ALLOWED_NUMBERS", "").split(",")
         people = c["contacts"] + [c["leader"]]
         if len(allowed) != 1 or not all(p["phone"] == allowed[0] and p["consent"] and not p["opted_out"] for p in people): return
+        if not self.has_sms_consent(state, allowed[0]): return
         if not state["appointments"] or not all(r["appointment"]["is_test_data"] for r in state["appointments"].values()): return
         self.configure({**c, "mode": "live"})
 

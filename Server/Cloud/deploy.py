@@ -72,6 +72,7 @@ server {
 """
     files = [("/opt/carecircle/server.py", (ROOT / "Server/server.py").read_text(), "0644"),
              ("/opt/carecircle/coordinator.py", (ROOT / "Server/coordinator.py").read_text(), "0644"),
+             ("/opt/carecircle/sms_consent.py", (ROOT / "Server/sms_consent.py").read_text(), "0644"),
              ("/opt/carecircle/requirements.txt", (ROOT / "Server/requirements.txt").read_text(), "0644"),
              ("/opt/carecircle/fixtures/appointments.json", (ROOT / "Server/fixtures/appointments.json").read_text(), "0644"),
              ("/etc/carecircle.env", environment, "0600"),
@@ -235,7 +236,7 @@ def main():
     print("Waiting for managed HTTPS gateway…", flush=True)
     result = oci.wait_until(gateway, gateway.get_gateway(gateway_id), "lifecycle_state", "ACTIVE", max_wait_seconds=900).data
     routes = []
-    for path, methods in [("/health", ["GET"]), ("/appointments", ["GET", "POST"]), ("/coordinator", ["GET"]),
+    for path, methods in [("/health", ["GET"]), ("/appointments", ["GET", "POST"]), ("/coordinator", ["GET"]), ("/sms/consent", ["GET", "POST"]),
                           ("/coordinator/configure", ["POST"]), ("/coordinator/simulate", ["POST"]), ("/coordinator/check", ["POST"]),
                           ("/twilio/inbound", ["POST"]), ("/twilio/status", ["POST"]),
                           ("/chat", ["POST"]), ("/speech/session", ["POST"]), ("/speech/synthesize", ["POST"]), ("/voice/session", ["POST"])]:

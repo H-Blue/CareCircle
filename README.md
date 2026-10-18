@@ -47,3 +47,5 @@ The live UI integration test `testElevenLabsRecordingToolOpensRecorder` requires
 ## Event-driven care coordination
 
 Oracle now hosts a persistent transport coordinator for the synthetic appointment feed. Open the menu → Apple Calendar & transport → Care coordinator to see requests, separate outbound/return coverage, and messages. In test mode, simulation controls never send SMS. The approved own-number demo can automatically start texting after Twilio approves the toll-free sender and verifies the trial recipient; it is restricted to the owner’s number with a 20-message daily limit. Calendar notes refresh when the app runs. See [workflow, setup, verification, and limits](Docs/CareCoordinator.md).
+
+SMS signup is available in **Menu → Apple Calendar & transport → SMS consent & preferences**. The form starts unchecked and saves a private consent receipt; withdrawing suppresses future queued messages. [Public signup documentation](Docs/SMSConsent.md), [SMS terms](Docs/SMSTerms.md), and [privacy notice](Docs/SMSPrivacy.md) describe the current single-owner prototype. Saving consent does not bypass Twilio approval or expand the recipient allowlist.

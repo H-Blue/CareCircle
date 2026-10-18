@@ -294,6 +294,7 @@ struct CalendarIntegrationView: View {
         Form {
             Section {
                 NavigationLink("Care coordinator") { CareCoordinatorView(calendar: store) }
+                NavigationLink("SMS consent & preferences") { SMSConsentView() }
             } footer: { Text("See requests, confirmed rides, and anything needing your attention.") }
             Section {
                 VStack(alignment: .leading, spacing: 8) {
@@ -438,6 +439,7 @@ private struct CareCoordinatorView: View {
             if let snapshot {
                 Section {
                     Text(snapshot.patientName).font(.title2)
+                    NavigationLink("SMS consent & preferences") { SMSConsentView() }
                     Text(snapshot.mode == "live" ? "Coordinating by text" : snapshot.mode == "paused" ? "Coordination paused" : "Demo simulation · no texts sent")
                     if !snapshot.smsApproved {
                         Text("Waiting for Twilio sender approval and trial recipient verification. The authorized demo can activate automatically after both are ready.")
@@ -517,6 +519,136 @@ private struct CareCoordinatorView: View {
             let result = try JSONDecoder().decode(Result.self, from: data).result
             await load()
             if !["confirmed", "declined"].contains(result) { error = "This demo request is no longer waiting for a reply. Current status: " + result.replacingOccurrences(of: "_", with: " ") }
+        } catch { self.error = error.localizedDescription }
+    }
+}
+
+private struct SMSConsentInfo: Decodable {
+    let program: String
+    let version: String
+    let disclosure: String
+    let checkboxLabel: String
+    let privacyURL: URL
+    let termsURL: URL
+    let proofURL: URL
+    let active: Bool
+    let optedOutBySMS: Bool
+    let receipt: Receipt?
+    enum CodingKeys: String, CodingKey {
+        case program, version, disclosure, active, receipt
+        case checkboxLabel = "checkbox_label", privacyURL = "privacy_url", termsURL = "terms_url"
+        case proofURL = "proof_url", optedOutBySMS = "opted_out_by_sms"
+    }
+    struct Receipt: Decodable {
+        let id: String
+        let phone: String
+        let acceptedAt: String
+        enum CodingKeys: String, CodingKey { case id, phone; case acceptedAt = "accepted_at" }
+    }
+}
+
+struct SMSConsentView: View {
+    @State private var info: SMSConsentInfo?
+    @State private var name = ""
+    @State private var phone = ""
+    @State private var agreed = false
+    @State private var busy = false
+    @State private var error: String?
+    @State private var status: String?
+    @FocusState private var editing: String?
+    private let cream = Color(red: 0.89, green: 0.85, blue: 0.74)
+    private var api: CareCircleAPI {
+        CareCircleAPI(address: UserDefaults.standard.string(forKey: "careCircleServerAddress") ?? "", token: ConnectionToken.read())
+    }
+    var body: some View {
+        Form {
+            if let info {
+                Section {
+                    Text("Appointment & transport texts").font(.title3)
+                    Text(info.disclosure).font(.callout).accessibilityIdentifier("SMS disclosure")
+                    HStack {
+                        Link("SMS Terms", destination: info.termsURL)
+                        Spacer()
+                        Link("Privacy Notice", destination: info.privacyURL)
+                    }.font(.callout)
+                }
+                Section {
+                    TextField("Your name", text: $name)
+                        .textContentType(.name).focused($editing, equals: "name")
+                        .submitLabel(.done).onSubmit { editing = nil }
+                        .accessibilityIdentifier("SMS consent name")
+                    TextField("Your mobile number", text: $phone)
+                        .textContentType(.telephoneNumber).keyboardType(.phonePad)
+                        .focused($editing, equals: "phone")
+                        .accessibilityIdentifier("SMS consent phone")
+                    Button {
+                        agreed.toggle()
+                    } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: agreed ? "checkmark.square.fill" : "square").font(.title3)
+                            Text(info.checkboxLabel).foregroundStyle(.primary)
+                        }.padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("SMS consent checkbox")
+                    .accessibilityValue(agreed ? "Checked" : "Unchecked")
+                    .accessibilityIdentifier("SMS consent checkbox")
+                    Button("Save SMS consent") { Task { await submit(action: "accept") } }
+                        .disabled(busy || !agreed || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("Save SMS consent")
+                } footer: {
+                    Text("Enter your own number, including its country code, such as +1 for the US. This developer demo supports the owner’s configured number. Your name, number, agreement, and time are saved privately. SMS still requires Twilio sender approval.")
+                }
+                if info.active, let receipt = info.receipt {
+                    Section {
+                        Text("SMS consent is saved for the number ending in " + String(receipt.phone.suffix(4)) + ".")
+                        if info.optedOutBySMS {
+                            Text("You previously texted STOP. To resume texts, send START to the Care Circle sender. Saving this form does not clear an SMS opt-out.")
+                        }
+                        Button("Withdraw SMS consent", role: .destructive) { Task { await submit(action: "withdraw") } }.disabled(busy)
+                    } footer: {
+                        Text("Withdrawal prevents future queued texts. A message already submitted to the carrier may still arrive. Past ride confirmations remain available for review.")
+                    }
+                }
+                if let status { Text(status).accessibilityIdentifier("SMS consent status") }
+                if let error { Text(error).foregroundStyle(.red) }
+                Section {
+                    Link("View public signup documentation", destination: info.proofURL)
+                } footer: { Text("The public page shows a blank example of this screen. Your consent record is private.") }
+            } else {
+                if let error { Text(error).foregroundStyle(.red) }
+                Button("Load SMS preferences") { Task { await load() } }.disabled(busy)
+                if busy { ProgressView("Loading SMS preferences…") }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(cream.ignoresSafeArea())
+        .navigationTitle("SMS consent")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { editing = nil } }
+        }
+        .task { await load() }
+    }
+    private func load() async {
+        busy = true; defer { busy = false }
+        do {
+            let data = try await api.request("sms/consent")
+            info = try JSONDecoder().decode(SMSConsentInfo.self, from: data)
+            agreed = false; error = nil
+        } catch { self.error = error.localizedDescription }
+    }
+    private func submit(action: String) async {
+        guard let info else { return }
+        editing = nil; busy = true; error = nil; status = nil
+        defer { busy = false }
+        do {
+            let targetPhone = action == "withdraw" ? info.receipt?.phone ?? "" : phone
+            let payload: [String: Any] = ["action": action, "name": name, "phone": targetPhone, "accepted": agreed, "version": info.version]
+            let data = try await api.request("sms/consent", json: JSONSerialization.data(withJSONObject: payload))
+            self.info = try JSONDecoder().decode(SMSConsentInfo.self, from: data)
+            agreed = false
+            status = action == "accept" ? "Your SMS consent is saved. Texts can begin once the sender is approved and your number is eligible." : "SMS consent withdrawn. Future queued texts are suppressed."
         } catch { self.error = error.localizedDescription }
     }
 }

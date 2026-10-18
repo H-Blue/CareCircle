@@ -29,11 +29,14 @@ class FakeSender:
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
         self.now = datetime.fromisoformat('2026-10-18T00:00:00+00:00').timestamp()
+        self.environment = patch.dict('os.environ', {'TWILIO_ALLOWED_NUMBERS': PHONE})
+        self.environment.start(); self.addCleanup(self.environment.stop)
         self.store = MemoryState(); self.sender = FakeSender()
         self.c = Coordinator(self.store, self.sender, clock=lambda: self.now)
         self.config = dict(mode='test', patient_name='Demo patient', leader=dict(name='Leader',phone=PHONE,consent=True),
                            contacts=[dict(id='ted',name='Ted',phone=PHONE,consent=True)],daily_limit=20,allow_demo_sms=True)
         self.c.configure(self.config)
+        self.c.save_sms_consent(dict(action='accept', name='Test owner', phone=PHONE, accepted=True, version='2026-10-18-v1'))
         self.a = json.loads((Path(__file__).parent/'fixtures/appointments.json').read_text())['appointments'][0]
         self.c.upsert(self.a); self.c.tick()
 
@@ -221,6 +224,9 @@ class DemoApprovalTests(unittest.TestCase):
             c.configure(config);c.seed(json.loads((Path(__file__).parent/'fixtures/appointments.json').read_text()))
             with patch.object(sender,'approval_status',return_value=False):c.activate_authorized_demo()
             self.assertEqual(c.snapshot()['mode'],'test')
+            with patch.object(sender,'approval_status',return_value=True):c.activate_authorized_demo()
+            self.assertEqual(c.snapshot()['mode'],'test')
+            c.save_sms_consent(dict(action='accept',name='Test owner',phone=PHONE,accepted=True,version='2026-10-18-v1'))
             with patch.object(sender,'approval_status',return_value=True):c.activate_authorized_demo()
             self.assertEqual(c.snapshot()['mode'],'live')
             config['mode']='paused';c.configure(config)
