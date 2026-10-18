@@ -244,13 +244,17 @@ def make_handler(chat, token, voice=None, coordinator=None, accounts=None, cloud
                     self.connection.settimeout(60)
                     raw = self.rfile.read(length)
                     if len(raw) != length: raise UserError("The upload was interrupted. Please retry.")
-                    if parsed.path != "/visits/audio/part":
+                    if parsed.path not in ("/visits/audio/part", "/visits/photo"):
                         if self.headers.get_content_type() != "application/json": raise UserError("Expected a JSON visit request.")
                         payload = json.loads(raw)
                         if not isinstance(payload, dict): raise UserError("Invalid visit request.")
                     elif self.headers.get_content_type() != "application/octet-stream": raise UserError("Expected recording bytes.")
                 circle = query.get("circle_id")
-                if parsed.path == "/visits" and not post:
+                if parsed.path == "/visits/photo":
+                    result = cloud_visits.photo(session, circle, query.get("member_id", "me"), raw if post else None)
+                    if not post:
+                        self.send_data(200, result, "image/jpeg"); return
+                elif parsed.path == "/visits" and not post:
                     result = cloud_visits.listing(session, circle, query.get("cursor"))
                 elif parsed.path == "/visits/detail" and not post:
                     uid, _ = accounts.circle_identity(session, circle)

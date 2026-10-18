@@ -20,6 +20,7 @@ final class EncircleUITests: XCTestCase {
             XCTAssertTrue(app.buttons["Create a circle"].waitForExistence(timeout: 5))
         }
         signIn("Demo Leader", "+15555550123")
+        XCTAssertTrue(app.buttons["Add profile picture"].exists)
         app.buttons["Create a circle"].tap()
         app.textFields["Circle name"].tap(); app.textFields["Circle name"].typeText("Demo circle")
         app.textFields["Who are you caring for?"].tap(); app.textFields["Who are you caring for?"].typeText("Demo patient")
@@ -29,6 +30,7 @@ final class EncircleUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Circle invitation code"].waitForExistence(timeout: 5))
         let invitation = app.staticTexts["Circle invitation code"].label
         XCTAssertEqual(invitation.count, 16)
+        XCTAssertTrue(app.buttons["Add profile picture"].exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Encircle-synthetic-circle"; screenshot.lifetime = .keepAlways; add(screenshot)
         app.navigationBars.buttons.element(boundBy: 0).tap()
@@ -63,6 +65,12 @@ final class EncircleUITests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
         let sharedVisit = app.buttons["appointment-71E041CE-225E-42F7-91E3-A2ABC762AE01"]
         XCTAssertTrue(sharedVisit.waitForExistence(timeout: 20))
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts["Your circle"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.otherElements["Demo patient, receiving care"].exists)
+        let orbit = XCTAttachment(screenshot: app.screenshot())
+        orbit.name = "Encircle-circle-display"; orbit.lifetime = .keepAlways; add(orbit)
+        app.swipeDown()
         sharedVisit.tap()
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Your scan shows no fracture")).firstMatch.waitForExistence(timeout: 5))
         app.buttons["AI summary"].tap()

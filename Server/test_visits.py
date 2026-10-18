@@ -37,6 +37,34 @@ class CloudVisitTests(unittest.TestCase):
             time.sleep(.01)
         self.fail("Background storage task did not finish")
 
+    def test_profile_photos_are_private_and_editable_only_by_owner(self):
+        photo = b"\xff\xd8synthetic-jpeg\xff\xd9"
+        uid = self.friend["user"]["id"]
+        revision = self.visits.photo(self.friend["token"], raw=photo)["photo_revision"]
+        self.assertEqual(self.accounts.me(self.friend["token"])["user"]["photo_revision"], revision)
+        self.assertEqual(self.visits.photo(self.leader["token"], self.circle["id"], uid), photo)
+        members = self.accounts.me(self.leader["token"])["circles"][0]["members"]
+        self.assertEqual(next(m for m in members if m["id"] == uid)["photo_revision"], revision)
+        for token in (self.outsider["token"], "", "legacy-owner-token"):
+            with self.assertRaises(UserError): self.visits.photo(token, self.circle["id"], uid)
+        with self.assertRaises(UserError): self.visits.photo(self.leader["token"], self.circle["id"], uid, photo)
+        self.accounts.action(self.friend["token"], "/users/circles/leave", {"circle_id": self.circle["id"]})
+        with self.assertRaises(UserError): self.visits.photo(self.leader["token"], self.circle["id"], uid)
+        self.assertEqual(self.visits.photo(self.friend["token"]), photo)
+
+    def test_patient_photo_requires_leader_and_invalid_upload_preserves_photo(self):
+        photo = b"\xff\xd8patient-photo\xff\xd9"
+        with self.assertRaises(UserError): self.visits.photo(self.leader["token"], self.circle["id"], "patient")
+        self.visits.photo(self.leader["token"], self.circle["id"], "patient", photo)
+        self.assertEqual(self.visits.photo(self.friend["token"], self.circle["id"], "patient"), photo)
+        before = self.accounts.me(self.leader["token"])["circles"][0]["photo_revision"]
+        for token, raw in ((self.friend["token"], photo), (self.leader["token"], b"not-a-photo"),
+                           (self.leader["token"], b"\xff\xd8" + b"x" * 200000 + b"\xff\xd9")):
+            with self.assertRaises(UserError): self.visits.photo(token, self.circle["id"], "patient", raw)
+        self.assertEqual(self.accounts.me(self.leader["token"])["circles"][0]["photo_revision"], before)
+        self.accounts.action(self.friend["token"], "/users/circles/leave", {"circle_id": self.circle["id"]})
+        with self.assertRaises(UserError): self.visits.photo(self.friend["token"], self.circle["id"], "patient")
+
     def test_circle_members_share_transcript_and_outsider_is_denied(self):
         saved = self.visits.save(self.leader["token"], self.payload)
         friend = self.visits.listing(self.friend["token"], self.circle["id"])["visits"]

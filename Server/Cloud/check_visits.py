@@ -32,6 +32,7 @@ def main():
     os.environ["OCI_AUTH"] = "api_key"
     store = OracleDirectory()
     def request(path, token, payload=None, raw=None, **fields):
+        time.sleep(.55)  # Respect the shared gateway’s two-requests/second ingress budget.
         url = private["endpoint"] + path
         if fields: url += "?" + urllib.parse.urlencode(fields)
         body = raw if raw is not None else (json.dumps(payload).encode() if payload is not None else None)
@@ -40,7 +41,7 @@ def main():
         try:
             with urllib.request.urlopen(req, timeout=65) as r:
                 data = r.read()
-                return r.status, data if r.headers.get_content_type() == "application/octet-stream" else json.loads(data)
+                return r.status, data if r.headers.get_content_type() in ("application/octet-stream", "image/jpeg") else json.loads(data)
         except urllib.error.HTTPError as error:
             try: message = json.loads(error.read()).get("error", "")
             except ValueError: message = "Gateway response"
@@ -59,6 +60,14 @@ def main():
             "invite_code": secrets.token_hex(8).upper(), "members": {ids[0]: "leader", ids[1]: "friend"}}
     store.update(seed)
     try:
+        photo = b"\xff\xd8synthetic-private-photo\xff\xd9"
+        assert request("/visits/photo", tokens[1], raw=photo)[0] == 200
+        assert request("/visits/photo", tokens[0], circle_id=circle, member_id=ids[1])[1] == photo
+        assert request("/visits/photo", tokens[2], circle_id=circle, member_id=ids[1])[0] == 403
+        assert request("/visits/photo", tokens[1], raw=photo, circle_id=circle, member_id="patient")[0] == 403
+        assert request("/visits/photo", tokens[0], raw=photo, circle_id=circle, member_id="patient")[0] == 200
+        assert request("/visits/photo", tokens[1], circle_id=circle, member_id="patient")[1] == photo
+        print("Live private profile/patient photo storage and access checks passed.", flush=True)
         payload = {"circle_id": circle, "visit": {"id": vid, "date": time.time() - 978307200, "duration": 2,
             "complete": True, "partial": "", "lines": [{"id": str(uuid.uuid4()).upper(), "elapsed": 0,
             "text": "This is a synthetic test transcript. The clinician says to arrange a check-in in two weeks."}]}}
@@ -102,7 +111,7 @@ def main():
         store.update(remove)
         objects = oci.object_storage.ObjectStorageClient(config)
         namespace, bucket = private["coordinator_namespace"], private["visits_bucket"]
-        for prefix in ["circles/" + circle + "/"] + ["preferences/" + uid + "/" for uid in ids]:
+        for prefix in ["circles/" + circle + "/", "photos/circles/" + circle + "/"] + [prefix + uid + "/" for uid in ids for prefix in ("preferences/", "photos/users/")]:
             versions = oci.pagination.list_call_get_all_results(objects.list_object_versions, namespace, bucket, prefix=prefix).data
             for version in versions:
                 if not version.name.startswith(prefix): raise RuntimeError("Unsafe test cleanup prefix")

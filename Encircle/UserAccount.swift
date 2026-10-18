@@ -1,5 +1,7 @@
 import SwiftUI
 import Security
+import PhotosUI
+import ImageIO
 
 enum AccountCredential {
     private static var query: [String: Any] {
@@ -49,6 +51,7 @@ struct CircleMember: Decodable, Identifiable {
     let id: String
     let name: String
     let role: String
+    let photo_revision: String?
 }
 
 struct UserCircle: Decodable, Identifiable {
@@ -57,11 +60,12 @@ struct UserCircle: Decodable, Identifiable {
     let patient_name: String
     let role: String
     let members: [CircleMember]
+    let photo_revision: String?
     let invite_code: String?
 }
 
 struct AccountSnapshot: Decodable {
-    struct User: Decodable { let id: String; let name: String; let phone: String }
+    struct User: Decodable { let id: String; let name: String; let phone: String; let photo_revision: String? }
     let user: User
     let circles: [UserCircle]
     let token: String?
@@ -150,6 +154,18 @@ private struct AccountRequestError: LocalizedError {
         }
     }
 
+    func uploadPhoto(_ data: Data, circleID: String? = nil) async {
+        guard !busy else { return }
+        busy = true; error = nil; defer { busy = false }
+        do {
+            var fields = ["member_id": circleID == nil ? "me" : "patient"]
+            if let circleID { fields["circle_id"] = circleID }
+            _ = try await VisitCloudClient(token: token).request("visits/photo", fields: fields, bytes: data)
+            snapshot = try JSONDecoder().decode(AccountSnapshot.self, from: await request("users/me"))
+            CircleSelection.notify()
+        } catch { self.error = error.localizedDescription }
+    }
+
     func signOut() async {
         guard !busy else { return }
         busy = true; error = nil; defer { busy = false }
@@ -177,6 +193,8 @@ struct UserAccountView: View {
             if !account.signedIn { signIn }
             else if let snapshot = account.snapshot {
                 Section("Your account") {
+                    ProfilePhotoSetting(account: account, name: snapshot.user.name,
+                        revision: snapshot.user.photo_revision)
                     Text(snapshot.user.name).font(.title2)
                     Text(snapshot.user.phone).foregroundStyle(.secondary)
                     NavigationLink("SMS consent & preferences") { SMSConsentView() }
@@ -316,6 +334,12 @@ private struct UserCircleView: View {
                         Text("New recordings, transcripts and summaries are shared with every member of this circle.").font(.footnote)
                     }
                 }
+                if circle.role == "leader" {
+                    Section("Patient photo") {
+                        ProfilePhotoSetting(account: account, name: circle.patient_name,
+                            revision: circle.photo_revision, circleID: circle.id)
+                    }
+                }
                 Section("People") {
                     ForEach(circle.members) { member in
                         HStack { Text(member.name); Spacer(); Text(member.role.capitalized).foregroundStyle(.secondary) }
@@ -342,5 +366,174 @@ private struct UserCircleView: View {
             Button("Leave circle", role: .destructive) { Task { if await account.save("users/circles/leave", ["circle_id": circleID]) { dismiss() } } }
         }
         .refreshable { await account.refresh() }
+    }
+}
+
+/// Avatars are fetched with the signed-in member's credentials, never public image URLs.
+struct CircleAvatar: View {
+    let name: String
+    let revision: String?
+    var circleID: String? = nil
+    var memberID = "me"
+    var size: CGFloat = 64
+    var prominent = false
+    @State private var image: UIImage?
+    private var initials: String {
+        let words = name.split(whereSeparator: { $0.isWhitespace })
+        return words.prefix(2).compactMap { $0.first.map(String.init) }.joined().uppercased()
+    }
+    var body: some View {
+        ZStack {
+            Circle().fill(prominent ? CareStyle.burgundy : CareStyle.burgundy.opacity(0.12))
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill().frame(width: size, height: size).clipped()
+            } else {
+                Text(initials).font(.system(size: size * 0.32, weight: .medium, design: .rounded))
+                    .foregroundStyle(prominent ? CareStyle.cream : CareStyle.burgundy)
+            }
+        }
+        .frame(width: size, height: size).clipShape(Circle()).accessibilityHidden(true)
+        .task(id: "\(circleID ?? "self")/\(memberID)/\(revision ?? "")/\(AccountCredential.read())") {
+            image = nil
+            guard revision != nil else { return }
+            let token = AccountCredential.read()
+            var fields = ["member_id": memberID]
+            if let circleID { fields["circle_id"] = circleID }
+            for attempt in 0..<4 {
+                do {
+                    let data = try await VisitCloudClient(token: token).request("visits/photo", fields: fields)
+                    guard !Task.isCancelled, AccountCredential.read() == token,
+                          let source = CGImageSourceCreateWithData(data as CFData, nil),
+                          let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                            kCGImageSourceCreateThumbnailFromImageAlways: true,
+                            kCGImageSourceThumbnailMaxPixelSize: 256,
+                            kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { return }
+                    image = UIImage(cgImage: thumbnail)
+                    return
+                } catch {
+                    guard let status = (error as? VisitCloudError)?.status,
+                          [429, 502, 503, 504].contains(status), attempt < 3 else { return }
+                    do { try await Task.sleep(for: .seconds(attempt + 1)) } catch { return }
+                }
+            }
+        }
+    }
+}
+
+private struct ProfilePhotoSetting: View {
+    @ObservedObject var account: AccountStore
+    let name: String
+    let revision: String?
+    var circleID: String? = nil
+    @State private var selection: PhotosPickerItem?
+    @State private var preparing = false
+    @State private var photoError: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 16) {
+                CircleAvatar(name: name, revision: revision, circleID: circleID,
+                    memberID: circleID == nil ? "me" : "patient", size: 68, prominent: true)
+                PhotosPicker(selection: $selection, matching: .images, photoLibrary: .shared()) {
+                    Label(revision == nil ? "Add profile picture" : "Change profile picture", systemImage: "camera")
+                }.disabled(account.busy || preparing)
+            }
+            Text("Visible to people in your circle.").font(.caption).foregroundStyle(.secondary)
+            if preparing || account.busy { ProgressView("Saving photo…") }
+            if let photoError { Text(photoError).font(.footnote).foregroundStyle(.red) }
+        }
+        .onChange(of: selection) { _, item in
+            guard let item else { return }
+            Task { @MainActor in
+                preparing = true; photoError = nil
+                defer { preparing = false; selection = nil }
+                do {
+                    guard let raw = try await item.loadTransferable(type: Data.self) else {
+                        throw ConnectionError.message("This photo couldn’t be opened. Choose another photo.")
+                    }
+                    // Downsample before decoding; render a square to remove location and other EXIF metadata.
+                    guard let source = CGImageSourceCreateWithData(raw as CFData, nil),
+                          let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                            kCGImageSourceCreateThumbnailFromImageAlways: true,
+                            kCGImageSourceThumbnailMaxPixelSize: 768,
+                            kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else {
+                        throw ConnectionError.message("Choose a supported photo.")
+                    }
+                    let image = UIImage(cgImage: thumbnail)
+                    let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+                    let square = UIGraphicsImageRenderer(size: CGSize(width: 384, height: 384), format: format).image { _ in
+                        UIColor(CareStyle.cream).setFill(); UIRectFill(CGRect(x: 0, y: 0, width: 384, height: 384))
+                        let scale = max(384 / image.size.width, 384 / image.size.height)
+                        let w = image.size.width * scale, h = image.size.height * scale
+                        image.draw(in: CGRect(x: (384 - w) / 2, y: (384 - h) / 2, width: w, height: h))
+                    }
+                    guard let jpeg = square.jpegData(compressionQuality: 0.7), jpeg.count <= 200000 else {
+                        throw ConnectionError.message("This photo is too large. Choose another photo.")
+                    }
+                    await account.uploadPhoto(jpeg, circleID: circleID)
+                } catch { photoError = error.localizedDescription }
+            }
+        }
+    }
+}
+
+struct CareCircleDisplay: View {
+    let circle: UserCircle
+    @State private var page = 0
+    private var pages: Int { max(1, (circle.members.count + 5) / 6) }
+    var body: some View {
+        VStack(spacing: 4) {
+            Text("Your circle").font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+            TabView(selection: $page) {
+                ForEach(0..<pages, id: \.self) { index in
+                    orbit(Array(circle.members.dropFirst(index * 6).prefix(6))).tag(index)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 390)
+            if pages > 1 {
+                HStack(spacing: 8) {
+                    ForEach(0..<pages, id: \.self) { index in
+                        Button { withAnimation { page = index } } label: {
+                            Circle().fill(CareStyle.burgundy.opacity(page == index ? 1 : 0.25)).frame(width: 7, height: 7)
+                                .padding(6)
+                        }.accessibilityLabel("Circle members, page \(index + 1) of \(pages)")
+                    }
+                }
+            }
+        }
+        .onChange(of: circle.members.count) { _, _ in page = min(page, pages - 1) }
+        .accessibilityIdentifier("Care circle display")
+    }
+
+    private func orbit(_ members: [CircleMember]) -> some View {
+        GeometryReader { proxy in
+            let width = min(proxy.size.width, 360)
+            let radius = width * 0.36
+            let center = CGPoint(x: proxy.size.width / 2, y: 172)
+            ZStack {
+                Circle().stroke(CareStyle.burgundy.opacity(0.16), style: StrokeStyle(lineWidth: 1.5, dash: [5, 7]))
+                    .frame(width: radius * 2, height: radius * 2).position(center)
+                person(circle.patient_name, revision: circle.photo_revision, id: "patient", size: 94, patient: true)
+                    .position(center)
+                ForEach(Array(members.enumerated()), id: \.element.id) { index, member in
+                    let angle = -Double.pi / 2 + 2 * Double.pi * Double(index) / Double(max(members.count, 1))
+                    person(member.name, revision: member.photo_revision, id: member.id, size: 60)
+                        .position(x: center.x + radius * cos(angle), y: center.y + radius * sin(angle))
+                }
+            }
+        }
+    }
+
+    private func person(_ name: String, revision: String?, id: String, size: CGFloat, patient: Bool = false) -> some View {
+        VStack(spacing: 7) {
+            CircleAvatar(name: name, revision: revision, circleID: circle.id, memberID: id, size: size, prominent: patient)
+            Text(name).font(.system(size: patient ? 18 : 14, weight: patient ? .semibold : .regular))
+                .lineLimit(2).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(width: patient ? 160 : 96)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(height: size, alignment: .top)
+        .accessibilityElement(children: .ignore).accessibilityLabel(name + (patient ? ", receiving care" : ""))
     }
 }

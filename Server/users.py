@@ -210,7 +210,8 @@ class Accounts:
             if uid not in c["members"]: continue
             item = {k: c[k] for k in ("id", "name", "patient_name")}
             item["role"] = c["members"][uid]
-            item["members"] = [{"id": mid, "name": data["users"][mid]["name"], "role": role} for mid, role in c["members"].items()]
+            item["photo_revision"] = c.get("photo_revision")
+            item["members"] = [{"id": mid, "name": data["users"][mid]["name"], "role": role, "photo_revision": data["users"][mid].get("photo_revision")} for mid, role in c["members"].items()]
             # Only the leader receives the join code; never expose other members' phone numbers.
             if item["role"] == "leader": item["invite_code"] = c["invite_code"]
             circles.append(item)
@@ -229,6 +230,32 @@ class Accounts:
                 raise UserError("This circle is not available to your account.", 403)
             return uid, circle["members"][uid]
         return self.store.update(read)
+
+    def photo_target(self, token, circle_id=None, member_id="me", revision=None, check_write=False):
+        def access(data):
+            uid = self.identity(data, token)
+            if member_id == "me":
+                target = data["users"][uid]
+                prefix = "photos/users/" + uid
+            else:
+                circle = data["circles"].get(circle_id) if isinstance(circle_id, str) else None
+                if not circle or uid not in circle["members"]:
+                    raise UserError("This circle is not available to your account.", 403)
+                if member_id == "patient":
+                    if (check_write or revision is not None) and circle["members"][uid] != "leader":
+                        raise UserError("Only the circle leader can change the patient’s photo.", 403)
+                    target = circle
+                    prefix = "photos/circles/" + circle["id"]
+                else:
+                    if not isinstance(member_id, str) or member_id not in circle["members"]:
+                        raise UserError("This person is not in this circle.", 403)
+                    if check_write or revision is not None:
+                        raise UserError("You can change only your own profile photo.", 403)
+                    target = data["users"][member_id]
+                    prefix = "photos/users/" + member_id
+            if revision is not None: target["photo_revision"] = revision
+            return prefix, target.get("photo_revision")
+        return self.store.update(access)
 
     def consent(self, token, payload=None):
         def change(data):

@@ -14,6 +14,12 @@ Recorded visits, transcripts, summaries and playback are now shared privately wi
 
 Phone verification does not grant transport-SMS consent, configure trusted transport contacts, or send appointment requests. Signed-in users can save or withdraw consent for their verified phone number in **Your account → SMS consent & preferences**; the number is prefilled and cannot be replaced with someone else's. These records and their latest 10 changes persist privately in Oracle NoSQL. They do not enroll users into the legacy transport demo, which continues to use its separate owner consent.
 
+## Circle display and photos
+
+The bottom of the appointment menu displays the selected circle, with the person receiving care at its center. Member names and photos appear around a dashed ring; initials stand in for missing photos. More than six members appear on additional swipeable pages.
+
+In **Your account**, choose **Add profile picture** to select a photo from the system photo picker. Settings also links to **Profile pictures & your circle**. Each signed-in user controls their own photo. The circle leader can set the patient's photo from the circle detail. Photos are center-cropped to 384 pixels, JPEG-compressed and stripped of source metadata before uploading; the server accepts at most 200 KB. Photo bytes live in the private, versioned Oracle visits bucket; only revision identifiers live in the account directory. No public image URLs are created. Every photo read rechecks sign-in and membership; leaving a circle removes access to that circle's patient and member photos. Profile photos are shared across the user's circles.
+
 ## Current trial restriction
 
 `TWILIO_VERIFY_SELF_SERVICE=1` enables user-requested sign-in codes for US/Canada numbers, independently of the transport recipient allowlist. Twilio's trial still requires verified recipient numbers: a person whose number has not been verified in Twilio cannot receive a trial sign-in code. Add each test number to Twilio's verified recipients with its owner's participation, or upgrade the account before general sign-in. Provider failures never become successful sign-ins. This does not bypass messaging rules or expand the transport-demo allowlist. No real verification text is sent by tests or provisioning.
@@ -42,3 +48,5 @@ Backend tests cover approval, invalid/expired/replayed codes, attempt limits, se
 Sources: [Twilio Verify](https://www.twilio.com/docs/verify/api), [Twilio trial restrictions](https://www.twilio.com/docs/usage/trials/try-out-verify), [Oracle NoSQL pricing](https://www.oracle.com/europe/database/nosql/pricing/), [Oracle row permissions](https://docs.oracle.com/en/cloud/paas/nosql-cloud/odsql/).
 
 ![Circle screen using synthetic simulator accounts and an inactive local-only invitation code](../Preview/Encircle-circle.png)
+
+![Circle display with synthetic patient and family accounts](../Preview/Encircle-circle-display.png)

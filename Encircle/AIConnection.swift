@@ -124,6 +124,9 @@ struct ConnectionSettingsView: View {
 
     var body: some View {
         Form {
+            Section("Profile & circle") {
+                NavigationLink("Profile pictures & your circle") { UserAccountView() }
+            }
             Section {
                 TextField("https://your-encircle-server", text: $draftAddress)
                     .textInputAutocapitalization(.never)
@@ -221,6 +224,7 @@ final class VisitStore: ObservableObject {
     var folder: URL
     let rootFolder: URL
     let legacyFolder: URL
+    @Published var circlePeople: UserCircle?
     @Published var cloudContext: VisitCloudContext?
     @Published var scopeKey = "signed-out"
     @Published var cloudStatus: String?

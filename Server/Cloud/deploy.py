@@ -296,7 +296,7 @@ def main():
     user_routes = [("/users/me", ["GET"]), ("/users/sms/consent", ["GET", "POST"])] + [(p, ["POST"]) for p in (
         "/users/auth/start", "/users/auth/check", "/users/logout", "/users/profile", "/users/circles/create",
         "/users/circles/join", "/users/circles/rotate", "/users/circles/leave")]
-    visit_routes = [("/visits", ["GET"]), ("/visits/detail", ["GET"]), ("/visits/audio/part", ["GET", "POST"])] + [(p, ["POST"]) for p in (
+    visit_routes = [("/visits/photo", ["GET", "POST"]), ("/visits", ["GET"]), ("/visits/detail", ["GET"]), ("/visits/audio/part", ["GET", "POST"])] + [(p, ["POST"]) for p in (
         "/visits/save", "/visits/archive", "/visits/delete", "/visits/summary", "/visits/audio/start", "/visits/audio/finish", "/visits/speech/session", "/visits/voice/session")]
     for path, methods in visit_routes + user_routes + [("/health", ["GET"]), ("/appointments", ["GET", "POST"]), ("/coordinator", ["GET"]), ("/sms/consent", ["GET", "POST"]),
                           ("/coordinator/configure", ["POST"]), ("/coordinator/simulate", ["POST"]), ("/coordinator/check", ["POST"]),

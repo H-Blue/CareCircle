@@ -107,6 +107,21 @@ class CloudVisits:
         self.summarizing = set()
         self.audio_finishing = set()
 
+    def photo(self, token, circle=None, member="me", raw=None):
+        # Authorize before reading or writing the private bucket, and again when publishing.
+        prefix, revision = self.accounts.photo_target(token, circle, member, check_write=raw is not None)
+        if raw is not None:
+            if not 4 <= len(raw) <= 200000 or not raw.startswith(b"\xff\xd8") or not raw.endswith(b"\xff\xd9"):
+                raise UserError("Choose a JPEG profile photo under 200 KB.")
+            revision = uuid.uuid4().hex
+            self.objects.put(prefix + "/" + revision + ".jpg", raw, absent=True)
+            self.accounts.photo_target(token, circle, member, revision)
+            return {"photo_revision": revision}
+        if not revision: raise UserError("No profile photo has been added.", 404)
+        content, _ = self.objects.get(prefix + "/" + revision + ".jpg")
+        if not content: raise UserError("No profile photo has been added.", 404)
+        return content
+
     def key(self, circle, visit): return f"circles/{circle}/records/{ident(visit)}.json"
     def read(self, key):
         raw, version = self.objects.get(key)

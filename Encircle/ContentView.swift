@@ -336,6 +336,10 @@ private struct AppointmentMenu: View {
                         Color.clear.frame(height: 68).accessibilityHidden(true)
                         rule(index)
                     }
+                    if let circle = store.circlePeople {
+                        CareCircleDisplay(circle: circle)
+                            .padding(.top, 32).padding(.bottom, 24)
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 20)

@@ -221,6 +221,7 @@ extension VisitStore {
             }
             let context = VisitCloudContext(userID: me.user.id, circleID: circle.id, circleName: circle.name, role: circle.role, token: token)
             if cloudContext != context { switchScope(context) }
+            circlePeople = circle
             let records = try await client.list(circle: circle.id)
             guard cloudContext == context, token == AccountCredential.read() else { return }
             mergeCloud(records)
@@ -245,6 +246,7 @@ extension VisitStore {
         syncTask?.cancel(); syncTask = nil
         for task in summaryTasks.values { task.cancel() }
         summaryTasks.removeAll(); summarizing.removeAll()
+        circlePeople = nil
         cloudContext = context; scopeKey = context?.key ?? "signed-out"
         visits = []; storageError = nil; cloudStatus = nil
         // A signed-out account must never display a previous account's cloud cache.
