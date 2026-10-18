@@ -1,6 +1,51 @@
 import XCTest
 
 final class EncircleUITests: XCTestCase {
+    func testPhoneSignInCreateCircleAndJoinAsFamily() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--test-account-flow"]
+        app.launchEnvironment["ENCIRCLE_ACCOUNT_TEST_ADDRESS"] = "http://127.0.0.1:8799"
+        app.launch()
+        app.buttons["Open menu"].tap()
+        app.buttons["Your account"].tap()
+        if app.buttons["Sign out"].exists { app.buttons["Sign out"].tap() }
+        func signIn(_ name: String, _ phone: String) {
+            XCTAssertTrue(app.textFields["Account name"].waitForExistence(timeout: 5))
+            app.textFields["Account name"].tap(); app.textFields["Account name"].typeText(name)
+            app.textFields["Account phone"].tap(); app.textFields["Account phone"].typeText(phone)
+            app.buttons["Text me a sign-in code"].tap()
+            XCTAssertTrue(app.textFields["Account verification code"].waitForExistence(timeout: 5))
+            app.textFields["Account verification code"].tap(); app.textFields["Account verification code"].typeText("654321")
+            app.buttons["Sign in"].tap()
+            XCTAssertTrue(app.buttons["Create a circle"].waitForExistence(timeout: 5))
+        }
+        signIn("Demo Leader", "+15555550123")
+        app.buttons["Create a circle"].tap()
+        app.textFields["Circle name"].tap(); app.textFields["Circle name"].typeText("Demo circle")
+        app.textFields["Who are you caring for?"].tap(); app.textFields["Who are you caring for?"].typeText("Demo patient")
+        app.buttons["Create circle"].tap()
+        let circle = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Demo circle")).firstMatch
+        XCTAssertTrue(circle.waitForExistence(timeout: 5)); circle.tap()
+        XCTAssertTrue(app.staticTexts["Circle invitation code"].waitForExistence(timeout: 5))
+        let invitation = app.staticTexts["Circle invitation code"].label
+        XCTAssertEqual(invitation.count, 16)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Encircle-synthetic-circle"; screenshot.lifetime = .keepAlways; add(screenshot)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["Sign out"].tap()
+        signIn("Demo Family", "+15555550124")
+        app.buttons["Join a circle"].tap()
+        app.textFields["Invitation code"].tap(); app.textFields["Invitation code"].typeText(invitation)
+        app.buttons["Join circle"].tap()
+        XCTAssertTrue(circle.waitForExistence(timeout: 5)); circle.tap()
+        XCTAssertTrue(app.staticTexts["Demo Leader"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Demo Family"].exists)
+        XCTAssertTrue(app.staticTexts["Family"].exists)
+        XCTAssertFalse(app.staticTexts["Circle invitation code"].exists)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["Sign out"].tap()
+    }
+
     func testSMSConsentStartsUncheckedAndShowsActualDisclosure() {
         let app = XCUIApplication()
         app.launch()

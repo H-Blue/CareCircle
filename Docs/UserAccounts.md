@@ -1,0 +1,44 @@
+# Phone sign-in and circles
+
+Open **Menu → Your account** (the person icon). Enter your own name and mobile number, request a sign-in code, and enter the six-digit code from your text. New users are created only after Twilio Verify approves the code. Returning users sign in to their existing account; they can update their name separately.
+
+Choose **Create a circle**, enter a circle name and the name of the person receiving care, and become its leader. The circle detail shows members and a 16-character invitation code. Copy it and share it directly with people you trust. The leader can replace the code to stop further joins using the old one. Replacing a code does not remove existing members.
+
+Choose **Join a circle**, enter the invitation code and select **Family** or **Friend**. Members see each other's names and roles, not phone numbers. Only the leader sees or replaces the invitation code. Members can leave; transferring leadership and deleting a circle are not implemented yet.
+
+## What is connected
+
+Accounts, verified phone identities, session hashes, circles, and memberships persist in the **EncircleUsers** Oracle NoSQL database table in Chicago. Oracle instance identity gives the backend read/write access to rows in that table only, without table administration permission. Provider credentials stay on the server. Session tokens are stored in the iPhone Keychain, are hashed in the database, expire after 30 days, and are revoked at sign-out. At most three devices remain signed in per user.
+
+This is an account and membership foundation. The existing single-owner appointment feed, transport coordinator, SMS consent, recordings, summaries, and calendar integration are **not yet linked to these new circles**. Account tokens cannot access those legacy owner endpoints. There is no automatic sharing of existing visits or demo contacts with new members. The owner prototype's existing connection continues working independently.
+
+Phone verification does not grant transport-SMS consent, configure trusted transport contacts, or send appointment requests. The separate SMS consent form continues to govern that demo.
+
+## Current trial restriction
+
+The live verification provider still enforces the configured test-number allowlist. Other numbers receive an explanation rather than a fake successful sign-in. Twilio's trial also requires verified recipient numbers. Moving to general family/friend sign-in requires account eligibility and a deliberate verification-recipient configuration change; it does not bypass messaging rules. No real verification text is sent by tests or provisioning.
+
+The prototype limits verification starts to five per UTC day globally, one per phone per minute, five checks per challenge, and a 10-minute code lifetime. The authenticated/public account routes share the backend's 30 requests/minute limit. Failed or uncertain send attempts consume a start slot to prevent repeat charges. Trial texts use Twilio Verify rather than the transport sender. Verify charges are additional to transport SMS.
+
+## Provision and deploy
+
+Use the existing private Oracle/Twilio configuration, then run:
+
+```sh
+Server/.venv/bin/python Server/Cloud/prepare_users.py
+Server/.venv/bin/python Server/Cloud/deploy.py --paid-small-server --replace-server
+```
+
+Preparation reuses the named table and verification service; it never sends an SMS or creates a user. The table has provisioned limits of 10 read units, 10 write units and 1 GB storage, approximately $1.40/month at the referenced Oracle list rates, plus Verify usage. This is a paid table because the free-table request was rejected in Chicago. Deployments preserve it. Private table/service identifiers are written to the ignored server environment and local cloud state.
+
+For this small prototype, the directory is a single atomic JSON row with conditional writes, a 240 KB payload ceiling, at most 100 users/100 circles, 20 members per circle, and 10 circles per person. It is a bounded prototype, not an unlimited account service. Split into separate partitioned records and add account recovery/deletion, membership removal, abuse controls and per-circle clinical-data authorization before broader deployment.
+
+Account routes: public `POST /users/auth/start`, `POST /users/auth/check`; session-protected `GET /users/me` and `POST /users/profile`, `/users/logout`, `/users/circles/create`, `/users/circles/join`, `/users/circles/rotate`, `/users/circles/leave`. Account tokens and the legacy owner connection token are not interchangeable.
+
+## Verification
+
+Backend tests cover approval, invalid/expired/replayed codes, attempt limits, session expiry/revocation, identity preservation, circle privacy, leader-only invitation changes, membership isolation, leaving, and concurrent joins. The native simulator flow uses `Tests/account_test_server.py`, bound to localhost with synthetic identities and a mock verifier; that fixture is never installed on Oracle. Its separate simulator Keychain entry does not replace the real user session.
+
+Sources: [Twilio Verify](https://www.twilio.com/docs/verify/api), [Twilio trial restrictions](https://www.twilio.com/docs/usage/trials/try-out-verify), [Oracle NoSQL pricing](https://www.oracle.com/europe/database/nosql/pricing/), [Oracle row permissions](https://docs.oracle.com/en/cloud/paas/nosql-cloud/odsql/).
+
+![Circle screen using synthetic simulator accounts and an inactive local-only invitation code](../Preview/Encircle-circle.png)

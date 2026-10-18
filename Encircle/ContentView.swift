@@ -1,7 +1,7 @@
 import SwiftUI
 import AVFoundation
 
-private enum CareStyle {
+enum CareStyle {
     static let cream = Color(red: 0.89, green: 0.85, blue: 0.74)
     static let ink = Color(red: 0.13, green: 0.12, blue: 0.10)
     static let burgundy = Color(red: 0.57, green: 0.21, blue: 0.35)
@@ -324,6 +324,9 @@ private struct AppointmentMenu: View {
                     NavigationLink { ArchivedAppointments(store: store) } label: {
                         Image(systemName: "archivebox")
                     }.accessibilityLabel("Archived appointments")
+                    NavigationLink { UserAccountView() } label: {
+                        Image(systemName: "person.crop.circle")
+                    }.accessibilityLabel("Your account")
                     NavigationLink { ConnectionSettingsView() } label: {
                         Image(systemName: "gearshape")
                     }.accessibilityLabel("AI connection")

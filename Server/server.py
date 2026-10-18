@@ -189,7 +189,7 @@ class ElevenLabsVoice:
         return {"token": token}
 
 
-def make_handler(chat, token, voice=None, coordinator=None):
+def make_handler(chat, token, voice=None, coordinator=None, accounts=None):
     rate_lock = threading.Lock()
     requests = []
 
@@ -218,7 +218,39 @@ def make_handler(chat, token, voice=None, coordinator=None):
             supplied = self.headers.get("Authorization", "").encode()
             return hmac.compare_digest(supplied, f"Bearer {token}".encode())
 
+        def account_request(self, post=False):
+            from users import UserError
+            if accounts is None:
+                self.reply(503, {"error": "Phone sign-in is being configured. Please try again later."}); return
+            try:
+                with rate_lock:
+                    now = time.monotonic()
+                    requests[:] = [t for t in requests if now - t < 60]
+                    if len(requests) >= 30: raise UserError("Please wait a minute and try again.", 429)
+                    requests.append(now)
+                bearer = self.headers.get("Authorization", "")
+                session = bearer[7:] if bearer.startswith("Bearer ") else ""
+                payload = {}
+                if post:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < length <= 4096 or self.headers.get("Transfer-Encoding") or self.headers.get_content_type() != "application/json":
+                        raise UserError("Send a small JSON account request.")
+                    payload = json.loads(self.rfile.read(length))
+                    if not isinstance(payload, dict): raise UserError("Invalid account request.")
+                if self.path == "/users/me" and not post: result = accounts.me(session)
+                elif self.path == "/users/auth/start" and post: result = accounts.start(payload)
+                elif self.path == "/users/auth/check" and post: result = accounts.check(payload)
+                elif post and self.path in ("/users/logout", "/users/profile", "/users/circles/create", "/users/circles/join", "/users/circles/rotate", "/users/circles/leave"):
+                    result = accounts.action(session, self.path, payload)
+                else: raise UserError("Not found.", 404)
+                self.reply(200, result)
+            except UserError as error: self.reply(error.status, {"error": str(error)})
+            except (ValueError, UnicodeDecodeError): self.reply(400, {"error": "Invalid account request."})
+            except Exception: self.reply(503, {"error": "Accounts are temporarily unavailable. Please try again."})
+
         def do_GET(self):
+            if self.path.startswith("/users/"):
+                self.account_request(); return
             if not self.authenticated():
                 self.reply(401, {"error": "Connection token is incorrect."})
             elif self.path == "/health":
@@ -268,6 +300,8 @@ def make_handler(chat, token, voice=None, coordinator=None):
             except Exception: self.reply(503, {"error": "Messaging event couldn’t be saved. Please retry."})
 
         def do_POST(self):
+            if self.path.startswith("/users/"):
+                self.account_request(post=True); return
             if urllib.parse.urlsplit(self.path).path in ("/twilio/inbound", "/twilio/status"):
                 self.twilio_webhook(); return
             if not self.authenticated():
@@ -364,7 +398,11 @@ def main():
         coordinator = Coordinator(OracleState(), planner=chat)
         coordinator.seed(json.loads((Path(__file__).parent / "fixtures/appointments.json").read_text()))
         coordinator.start()
-    server = ThreadingHTTPServer((host, port), make_handler(chat, token, ElevenLabsVoice(), coordinator))
+    accounts = None
+    if os.environ.get("ENCIRCLE_USERS_TABLE") and os.environ.get("TWILIO_VERIFY_SERVICE_SID"):
+        from users import Accounts, OracleDirectory, VerifyProvider
+        accounts = Accounts(OracleDirectory(), VerifyProvider())
+    server = ThreadingHTTPServer((host, port), make_handler(chat, token, ElevenLabsVoice(), coordinator, accounts))
     print(f"Encircle development bridge listening on {host}:{port}. No conversation logging.")
     try:
         server.serve_forever()

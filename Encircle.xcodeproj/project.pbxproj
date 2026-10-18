@@ -28,6 +28,7 @@ D00000000000000000000004 = {isa = XCRemoteSwiftPackageReference; repositoryURL =
 D00000000000000000000005 = {isa = XCSwiftPackageProductDependency; package = D00000000000000000000004; productName = LiveKit; };
 D00000000000000000000006 = {isa = PBXBuildFile; productRef = D00000000000000000000005; };
 /* Begin PBXBuildFile section */
+        F00000000000000000000005 = {isa = PBXBuildFile; fileRef = F00000000000000000000006; };
         F00000000000000000000001 = {isa = PBXBuildFile; fileRef = F00000000000000000000003; };
         F00000000000000000000002 = {isa = PBXBuildFile; fileRef = F00000000000000000000004; };
         E00000000000000000000001 = {isa = PBXBuildFile; fileRef = E00000000000000000000002; };
@@ -40,6 +41,7 @@ D00000000000000000000006 = {isa = PBXBuildFile; productRef = D000000000000000000
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+        F00000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserAccount.swift; sourceTree = "<group>"; };
         F00000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = Docs/SMSPrivacy.md; sourceTree = SOURCE_ROOT; };
         F00000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = Docs/SMSTerms.md; sourceTree = SOURCE_ROOT; };
         E00000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarIntegration.swift; sourceTree = "<group>"; };
@@ -78,6 +80,7 @@ D00000000000000000000006 = {isa = PBXBuildFile; productRef = D000000000000000000
 			isa = PBXGroup;
 			children = (
 				E00000000000000000000002,
+                F00000000000000000000006,
                 A00000000000000000000011 /* EncircleApp.swift */,
 				A00000000000000000000012 /* ContentView.swift */,
 				A00000000000000000000015 /* AIConnection.swift */,
@@ -172,7 +175,7 @@ D00000000000000000000006 = {isa = PBXBuildFile; productRef = D000000000000000000
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E00000000000000000000001,
+				E00000000000000000000001, F00000000000000000000005,
                 A00000000000000000000001 /* EncircleApp.swift in Sources */,
 				A00000000000000000000002 /* ContentView.swift in Sources */,
 				A00000000000000000000004 /* AIConnection.swift in Sources */,

@@ -23,7 +23,7 @@ STATE_PATH = Path.home() / ".oci/encircle/cloud-state.json"
 def cloud_init(compartment):
     token = os.environ["ENCIRCLE_APP_TOKEN"]
     environment = f"OCI_AUTH=instance_principal\nOCI_REGION=us-chicago-1\nOCI_COMPARTMENT_ID={compartment}\nOCI_MODEL_ID={os.environ['OCI_MODEL_ID']}\nOCI_CHAT_FORMAT=COHERE\nENCIRCLE_APP_TOKEN={token}\nENCIRCLE_HOST=127.0.0.1\nENCIRCLE_PORT=8788\n"
-    for name in ("ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER", "TWILIO_ALLOWED_NUMBERS", "TWILIO_SMS_APPROVED", "TWILIO_AUTO_ENABLE_DEMO", "TWILIO_PHONE_NUMBER_SID", "COORDINATOR_NAMESPACE", "COORDINATOR_BUCKET", "ENCIRCLE_PUBLIC_URL"):
+    for name in ("ENCIRCLE_USERS_TABLE", "TWILIO_VERIFY_SERVICE_SID", "ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER", "TWILIO_ALLOWED_NUMBERS", "TWILIO_SMS_APPROVED", "TWILIO_AUTO_ENABLE_DEMO", "TWILIO_PHONE_NUMBER_SID", "COORDINATOR_NAMESPACE", "COORDINATOR_BUCKET", "ENCIRCLE_PUBLIC_URL"):
         if os.environ.get(name):
             value = os.environ[name]
             if any(character in value for character in "\r\n\"\\%$"):
@@ -72,6 +72,7 @@ server {
 """
     files = [("/opt/encircle/server.py", (ROOT / "Server/server.py").read_text(), "0644"),
              ("/opt/encircle/coordinator.py", (ROOT / "Server/coordinator.py").read_text(), "0644"),
+             ("/opt/encircle/users.py", (ROOT / "Server/users.py").read_text(), "0644"),
              ("/opt/encircle/sms_consent.py", (ROOT / "Server/sms_consent.py").read_text(), "0644"),
              ("/opt/encircle/requirements.txt", (ROOT / "Server/requirements.txt").read_text(), "0644"),
              ("/opt/encircle/fixtures/appointments.json", (ROOT / "Server/fixtures/appointments.json").read_text(), "0644"),
@@ -182,6 +183,12 @@ def main():
     existing = identity.get_policy(state["policy"]).data
     if statement not in existing.statements:
         identity.update_policy(state["policy"], oci.identity.models.UpdatePolicyDetails(statements=existing.statements + [statement]))
+    if os.environ.get("ENCIRCLE_USERS_TABLE"):
+        user_statement = (f"Allow dynamic-group id {group} to use nosql-rows in compartment id {compartment} "
+                          "where target.nosql-table.id='" + os.environ["ENCIRCLE_USERS_TABLE"] + "'")
+        current = identity.get_policy(state["policy"]).data
+        if user_statement not in current.statements:
+            identity.update_policy(state["policy"], oci.identity.models.UpdatePolicyDetails(statements=current.statements + [user_statement]))
     os.environ["COORDINATOR_NAMESPACE"] = namespace
     os.environ["COORDINATOR_BUCKET"] = bucket
     os.environ["ENCIRCLE_PUBLIC_URL"] = state.get("endpoint", os.environ.get("ENCIRCLE_PUBLIC_URL", ""))
@@ -236,7 +243,10 @@ def main():
     print("Waiting for managed HTTPS gateway…", flush=True)
     result = oci.wait_until(gateway, gateway.get_gateway(gateway_id), "lifecycle_state", "ACTIVE", max_wait_seconds=900).data
     routes = []
-    for path, methods in [("/health", ["GET"]), ("/appointments", ["GET", "POST"]), ("/coordinator", ["GET"]), ("/sms/consent", ["GET", "POST"]),
+    user_routes = [("/users/me", ["GET"])] + [(p, ["POST"]) for p in (
+        "/users/auth/start", "/users/auth/check", "/users/logout", "/users/profile", "/users/circles/create",
+        "/users/circles/join", "/users/circles/rotate", "/users/circles/leave")]
+    for path, methods in user_routes + [("/health", ["GET"]), ("/appointments", ["GET", "POST"]), ("/coordinator", ["GET"]), ("/sms/consent", ["GET", "POST"]),
                           ("/coordinator/configure", ["POST"]), ("/coordinator/simulate", ["POST"]), ("/coordinator/check", ["POST"]),
                           ("/twilio/inbound", ["POST"]), ("/twilio/status", ["POST"]),
                           ("/chat", ["POST"]), ("/speech/session", ["POST"]), ("/speech/synthesize", ["POST"]), ("/voice/session", ["POST"])]:

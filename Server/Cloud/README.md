@@ -61,3 +61,7 @@ Use the resource identifiers in the local state file to locate the dedicated Enc
 See [coordinator operation and limitations](../../Docs/CareCoordinator.md). The deployment creates/reuses private versioned Object Storage, adds narrowly scoped object permissions, installs the pinned Twilio SDK, and exposes authenticated coordinator/appointment routes plus signed Twilio webhooks. `--prepare-only` prepares storage/IAM without replacing the server. The gateway permits callback bursts; nginx keeps normal app traffic at 2 requests/second and Twilio webhooks at 10/second, while authenticated POST calls remain capped at 30/minute.
 
 Only the authorized own-number demo can auto-activate after Twilio approval. Set the private sender/account/allowlist fields in the ignored server environment; leave `TWILIO_SMS_APPROVED=0` for verification checks. `TWILIO_AUTO_ENABLE_DEMO=1` enables the approved activation flow; `TWILIO_PHONE_NUMBER_SID` identifies the sender to check. Keep the circle in `paused` mode to prevent automatic activation. Storage/version/request charges are additional usage charges.
+
+## User accounts
+
+`prepare_users.py` prepares the separate paid Oracle NoSQL account table and Twilio Verify service. Deployment includes the account routes and grants the VM row read/write access to that table only. See [phone sign-in and circle membership](../../Docs/UserAccounts.md) for setup, costs, trial restrictions and data isolation. No real user is created and no text is sent during provisioning.
