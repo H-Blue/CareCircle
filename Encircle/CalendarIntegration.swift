@@ -538,11 +538,14 @@ private struct SMSConsentInfo: Decodable {
     let proofURL: URL
     let active: Bool
     let optedOutBySMS: Bool
+    let verifiedName: String?
+    let verifiedPhone: String?
     let receipt: Receipt?
     enum CodingKeys: String, CodingKey {
         case program, version, disclosure, active, receipt
         case checkboxLabel = "checkbox_label", privacyURL = "privacy_url", termsURL = "terms_url"
         case proofURL = "proof_url", optedOutBySMS = "opted_out_by_sms"
+        case verifiedName = "verified_name", verifiedPhone = "verified_phone"
     }
     struct Receipt: Decodable {
         let id: String
@@ -554,6 +557,9 @@ private struct SMSConsentInfo: Decodable {
 
 struct SMSConsentView: View {
     @State private var info: SMSConsentInfo?
+    @State private var accountToken = ""
+    private var usingAccount: Bool { !accountToken.isEmpty }
+    private var consentPath: String { usingAccount ? "users/sms/consent" : "sms/consent" }
     @State private var name = ""
     @State private var phone = ""
     @State private var agreed = false
@@ -563,10 +569,18 @@ struct SMSConsentView: View {
     @FocusState private var editing: String?
     private let cream = Color(red: 0.89, green: 0.85, blue: 0.74)
     private var api: EncircleAPI {
-        EncircleAPI(address: UserDefaults.standard.string(forKey: "encircleServerAddress") ?? "", token: ConnectionToken.read())
+        usingAccount ? EncircleAPI(address: AccountServer.address, token: accountToken) :
+            EncircleAPI(address: UserDefaults.standard.string(forKey: "encircleServerAddress") ?? "", token: ConnectionToken.read())
     }
     var body: some View {
         Form {
+            if !usingAccount {
+                Section {
+                    NavigationLink("Sign in to use your own number") { UserAccountView() }
+                } footer: {
+                    Text("Sign in with your phone number to save your own SMS preferences. Without sign-in, this screen uses the original owner demo.")
+                }
+            }
             if let info {
                 disclosureSection(info)
                 Section {
@@ -578,6 +592,7 @@ struct SMSConsentView: View {
                         .textContentType(.telephoneNumber).keyboardType(.phonePad)
                         .focused($editing, equals: "phone")
                         .accessibilityIdentifier("SMS consent phone")
+                        .disabled(usingAccount)
                     Button {
                         agreed.toggle()
                     } label: {
@@ -594,7 +609,7 @@ struct SMSConsentView: View {
                         .disabled(busy || !agreed || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityIdentifier("Save SMS consent")
                 } footer: {
-                    Text("Enter your own number, including its country code, such as +1 for the US. This developer demo supports the owner’s configured number. Your name, number, agreement, and time are saved privately. SMS still requires Twilio sender approval.")
+                    Text(usingAccount ? "Consent applies to your verified sign-in number. Your agreement is saved privately. Saving consent does not enable transport messages or bypass Twilio approval." : "This is the original owner demo. To use another number, sign in above. Your name, number, agreement, and time are saved privately.")
                 }
                 if info.active, let receipt = info.receipt {
                     Section {
@@ -604,7 +619,7 @@ struct SMSConsentView: View {
                         }
                         Button("Withdraw SMS consent", role: .destructive) { Task { await submit(action: "withdraw") } }.disabled(busy)
                     } footer: {
-                        Text("Withdrawal prevents future queued texts. A message already submitted to the carrier may still arrive. Past ride confirmations remain available for review.")
+                        Text(usingAccount ? "You can withdraw your SMS agreement at any time. Your circle’s transport messages are not connected yet." : "Withdrawal prevents future queued texts. A message already submitted to the carrier may still arrive. Past ride confirmations remain available for review.")
                     }
                 }
                 if let status { Text(status).accessibilityIdentifier("SMS consent status") }
@@ -634,7 +649,7 @@ struct SMSConsentView: View {
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { editing = nil } }
         }
-        .task { await load() }
+        .onAppear { Task { await load() } }
     }
     private func disclosureSection(_ info: SMSConsentInfo) -> some View {
         Section {
@@ -645,11 +660,17 @@ struct SMSConsentView: View {
         }
     }
     private func load() async {
+        guard !busy else { return }
         busy = true; defer { busy = false }
+        accountToken = AccountCredential.read()
+        info = nil; status = nil
         do {
-            let data = try await api.request("sms/consent")
+            let data = try await api.request(consentPath)
             info = try JSONDecoder().decode(SMSConsentInfo.self, from: data)
             agreed = false; error = nil
+            if let info, let verifiedPhone = info.verifiedPhone {
+                phone = verifiedPhone; name = info.verifiedName ?? ""
+            } else { phone = ""; name = "" }
         } catch { self.error = error.localizedDescription }
     }
     private func submit(action: String) async {
@@ -659,10 +680,14 @@ struct SMSConsentView: View {
         do {
             let targetPhone = action == "withdraw" ? info.receipt?.phone ?? "" : phone
             let payload: [String: Any] = ["action": action, "name": name, "phone": targetPhone, "accepted": agreed, "version": info.version]
-            let data = try await api.request("sms/consent", json: JSONSerialization.data(withJSONObject: payload))
+            let data = try await api.request(consentPath, json: JSONSerialization.data(withJSONObject: payload))
             self.info = try JSONDecoder().decode(SMSConsentInfo.self, from: data)
             agreed = false
-            status = action == "accept" ? "Your SMS consent is saved. Texts can begin once the sender is approved and your number is eligible." : "SMS consent withdrawn. Future queued texts are suppressed."
+            if usingAccount {
+                status = action == "accept" ? "Your SMS consent is saved for your verified number. Circle transport messaging is not connected yet." : "Your SMS consent has been withdrawn."
+            } else {
+                status = action == "accept" ? "Your SMS consent is saved. Texts can begin once the sender is approved and your number is eligible." : "SMS consent withdrawn. Future queued texts are suppressed."
+            }
         } catch { self.error = error.localizedDescription }
     }
 }

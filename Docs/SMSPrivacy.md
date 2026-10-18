@@ -2,7 +2,7 @@
 
 Effective October 18, 2026. Applies to the appointment and transport SMS program, disclosure version `2026-10-18-encircle-v2`.
 
-Encircle is a care-coordination app in development. Its current deployment is a single-owner prototype with synthetic appointments, restricted SMS recipients, and no hospital/Epic connection.
+Encircle is a care-coordination app in development. Its current deployment has phone-verified user accounts and private circle memberships. The separate transport-message demo uses synthetic appointments and restricted recipients, with no hospital/Epic connection.
 
 ## Information used
 
@@ -10,11 +10,11 @@ When you explicitly opt in inside the app, Encircle privately records your name,
 
 We use this information to send requested appointment/transport coordination messages, process replies, enforce consent and opt-outs, and maintain an audit record. We do not sell phone numbers or SMS consent information. Mobile information and SMS opt-in data are not shared with third parties or affiliates for marketing or promotional purposes.
 
-Twilio processes phone numbers and message content to deliver SMS and return replies/status updates. Oracle Cloud hosts private coordination and consent storage. These providers process data to operate the service, not as a transfer of consent to their separate marketing programs. Phone numbers and names are not included in the Oracle transport-planning prompt. The app's separate voice and visit-recording features have their own data flow described in the project README.
+Twilio processes phone numbers and message content to deliver SMS and return replies/status updates. Oracle Cloud hosts private account, coordination and consent storage. These providers process data to operate the service, not as a transfer of consent to their separate marketing programs. Phone numbers and names are not included in the Oracle transport-planning prompt. The app's separate voice and visit-recording features have their own data flow described in the project README.
 
 ## Storage and public documentation
 
-Consent and coordination records are stored in private Oracle Object Storage with historical versions. They are accessible through the prototype's authenticated connection; they are not part of the public source repository or the public signup screenshots. During this prototype, audit records and storage versions are retained. Withdrawing SMS consent stops future queued messages; it does not erase historical records or recall a message already submitted to the carrier.
+Verified-account consent records are stored in private Oracle NoSQL and are accessible only through that user's authenticated session. The record includes the current agreement and up to 10 consent changes. It is bound to the verified sign-in number. Names and roles are visible to members of the same circle; phone numbers and consent records are not. The separate original owner-demo consent and coordination records remain in private Oracle Object Storage with historical versions and use its owner connection. None of these records are part of the public source repository or public signup screenshots. During this prototype, owner-demo audit records and storage versions are retained; user-account consent history retains the latest 10 changes. Withdrawing SMS consent stops future queued messages; it does not erase historical records or recall a message already submitted to the carrier.
 
 The public proof page contains only documentation and blank-screen screenshots. Do not publish your completed form, phone number, consent receipt, appointment information, or messages as proof of consent.
 

@@ -12,11 +12,11 @@ Accounts, verified phone identities, session hashes, circles, and memberships pe
 
 This is an account and membership foundation. The existing single-owner appointment feed, transport coordinator, SMS consent, recordings, summaries, and calendar integration are **not yet linked to these new circles**. Account tokens cannot access those legacy owner endpoints. There is no automatic sharing of existing visits or demo contacts with new members. The owner prototype's existing connection continues working independently.
 
-Phone verification does not grant transport-SMS consent, configure trusted transport contacts, or send appointment requests. The separate SMS consent form continues to govern that demo.
+Phone verification does not grant transport-SMS consent, configure trusted transport contacts, or send appointment requests. Signed-in users can save or withdraw consent for their verified phone number in **Your account → SMS consent & preferences**; the number is prefilled and cannot be replaced with someone else's. These records and their latest 10 changes persist privately in Oracle NoSQL. They do not enroll users into the legacy transport demo, which continues to use its separate owner consent.
 
 ## Current trial restriction
 
-The live verification provider still enforces the configured test-number allowlist. Other numbers receive an explanation rather than a fake successful sign-in. Twilio's trial also requires verified recipient numbers. Moving to general family/friend sign-in requires account eligibility and a deliberate verification-recipient configuration change; it does not bypass messaging rules. No real verification text is sent by tests or provisioning.
+`TWILIO_VERIFY_SELF_SERVICE=1` enables user-requested sign-in codes for US/Canada numbers, independently of the transport recipient allowlist. Twilio's trial still requires verified recipient numbers: a person whose number has not been verified in Twilio cannot receive a trial sign-in code. Add each test number to Twilio's verified recipients with its owner's participation, or upgrade the account before general sign-in. Provider failures never become successful sign-ins. This does not bypass messaging rules or expand the transport-demo allowlist. No real verification text is sent by tests or provisioning.
 
 The prototype limits verification starts to five per UTC day globally, one per phone per minute, five checks per challenge, and a 10-minute code lifetime. The authenticated/public account routes share the backend's 30 requests/minute limit. Failed or uncertain send attempts consume a start slot to prevent repeat charges. Trial texts use Twilio Verify rather than the transport sender. Verify charges are additional to transport SMS.
 
@@ -33,7 +33,7 @@ Preparation reuses the named table and verification service; it never sends an S
 
 For this small prototype, the directory is a single atomic JSON row with conditional writes, a 240 KB payload ceiling, at most 100 users/100 circles, 20 members per circle, and 10 circles per person. It is a bounded prototype, not an unlimited account service. Split into separate partitioned records and add account recovery/deletion, membership removal, abuse controls and per-circle clinical-data authorization before broader deployment.
 
-Account routes: public `POST /users/auth/start`, `POST /users/auth/check`; session-protected `GET /users/me` and `POST /users/profile`, `/users/logout`, `/users/circles/create`, `/users/circles/join`, `/users/circles/rotate`, `/users/circles/leave`. Account tokens and the legacy owner connection token are not interchangeable.
+Account routes: public `POST /users/auth/start`, `POST /users/auth/check`; session-protected `GET /users/me` and `POST /users/profile`, `/users/logout`, `/users/circles/create`, `/users/circles/join`, `/users/circles/rotate`, `/users/circles/leave`; plus session-protected `GET/POST /users/sms/consent`. Account tokens and the legacy owner connection token are not interchangeable.
 
 ## Verification
 

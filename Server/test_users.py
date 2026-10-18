@@ -8,7 +8,8 @@ from http.server import ThreadingHTTPServer
 from unittest.mock import Mock
 
 from server import make_handler
-from users import Accounts, MemoryDirectory, UserError, digest
+from users import Accounts, MemoryDirectory, UserError, VerifyProvider, digest
+import sms_consent
 
 
 class AccountTests(unittest.TestCase):
@@ -130,6 +131,40 @@ class AccountTests(unittest.TestCase):
             with self.assertRaises(UserError): self.accounts.start(payload)
         with self.assertRaises(UserError): self.accounts.me("")
 
+    def test_consent_is_scoped_to_verified_phone_and_independent_of_demo(self):
+        owner = self.login(); friend = self.login("+15555550124", "Friend")
+        self.assertFalse(self.accounts.consent(friend["token"])["active"])
+        payload = dict(action="accept", phone=friend["user"]["phone"], name="Friend", accepted=True, version=sms_consent.VERSION)
+        with self.assertRaises(UserError): self.accounts.consent(owner["token"], payload)
+        for invalid in [dict(accepted=False), dict(version="old")]:
+            with self.assertRaises(UserError): self.accounts.consent(friend["token"], {**payload, **invalid})
+        result = self.accounts.consent(friend["token"], payload)
+        self.assertTrue(result["active"])
+        self.assertFalse(result["transport_connected"])
+        self.assertEqual(result["verified_phone"], friend["user"]["phone"])
+        self.assertFalse(self.accounts.consent(owner["token"])["active"])
+        self.assertNotIn(friend["user"]["phone"], json.dumps(self.accounts.me(owner["token"])))
+        repeated = self.accounts.consent(friend["token"], payload)
+        self.assertEqual(result["receipt"]["id"], repeated["receipt"]["id"])
+        self.assertEqual(len(self.store.data["users"][friend["user"]["id"]]["sms_consent_history"]), 1)
+        withdrawn = self.accounts.consent(friend["token"], dict(action="withdraw", phone=friend["user"]["phone"]))
+        self.assertFalse(withdrawn["active"])
+        self.assertIn("revoked_at", withdrawn["receipt"])
+        self.assertFalse(self.accounts.consent(friend["token"])["active"])
+        renewed = self.accounts.consent(friend["token"], payload)
+        self.assertTrue(renewed["active"])
+        self.assertNotEqual(renewed["receipt"]["id"], result["receipt"]["id"])
+
+    def test_self_service_sign_in_is_separate_from_transport_allowlist(self):
+        provider = object.__new__(VerifyProvider)
+        provider.allowed = {"+15555550123"}
+        provider.self_service = False
+        with self.assertRaises(UserError): provider.validate("+15555550124")
+        provider.self_service = True
+        provider.validate("+15555550124")
+        with self.assertRaises(UserError): provider.validate("+442079460123")
+        self.assertEqual(provider.allowed, {"+15555550123"})
+
 
 class AccountHTTPTests(unittest.TestCase):
     def setUp(self):
@@ -157,6 +192,13 @@ class AccountHTTPTests(unittest.TestCase):
         status, signed = self.request("/users/auth/check", dict(challenge=start["challenge"], code="654321"))
         self.assertEqual(status, 200)
         self.assertEqual(self.request("/users/me", token=signed["token"])[0], 200)
+        self.assertEqual(self.request("/users/sms/consent")[0], 401)
+        status, consent = self.request("/users/sms/consent", token=signed["token"])
+        self.assertEqual(status, 200)
+        self.assertEqual(consent["verified_phone"], "+15555550123")
+        self.assertFalse(consent["active"])
+        status, saved = self.request("/users/sms/consent", dict(action="accept", name="Synthetic", phone="+15555550123", accepted=True, version=sms_consent.VERSION), token=signed["token"])
+        self.assertEqual(status, 200); self.assertTrue(saved["active"])
         self.assertEqual(self.request("/appointments", token=signed["token"])[0], 401)
         self.assertEqual(self.request("/sms/consent", token=signed["token"])[0], 401)
         self.assertEqual(self.request("/users/logout", {}, signed["token"])[0], 200)

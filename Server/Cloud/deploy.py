@@ -23,7 +23,7 @@ STATE_PATH = Path.home() / ".oci/encircle/cloud-state.json"
 def cloud_init(compartment):
     token = os.environ["ENCIRCLE_APP_TOKEN"]
     environment = f"OCI_AUTH=instance_principal\nOCI_REGION=us-chicago-1\nOCI_COMPARTMENT_ID={compartment}\nOCI_MODEL_ID={os.environ['OCI_MODEL_ID']}\nOCI_CHAT_FORMAT=COHERE\nENCIRCLE_APP_TOKEN={token}\nENCIRCLE_HOST=127.0.0.1\nENCIRCLE_PORT=8788\n"
-    for name in ("ENCIRCLE_USERS_TABLE", "TWILIO_VERIFY_SERVICE_SID", "ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER", "TWILIO_ALLOWED_NUMBERS", "TWILIO_SMS_APPROVED", "TWILIO_AUTO_ENABLE_DEMO", "TWILIO_PHONE_NUMBER_SID", "COORDINATOR_NAMESPACE", "COORDINATOR_BUCKET", "ENCIRCLE_PUBLIC_URL"):
+    for name in ("ENCIRCLE_USERS_TABLE", "TWILIO_VERIFY_SERVICE_SID", "TWILIO_VERIFY_SELF_SERVICE", "ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER", "TWILIO_ALLOWED_NUMBERS", "TWILIO_SMS_APPROVED", "TWILIO_AUTO_ENABLE_DEMO", "TWILIO_PHONE_NUMBER_SID", "COORDINATOR_NAMESPACE", "COORDINATOR_BUCKET", "ENCIRCLE_PUBLIC_URL"):
         if os.environ.get(name):
             value = os.environ[name]
             if any(character in value for character in "\r\n\"\\%$"):
@@ -197,7 +197,7 @@ def main():
         return
     # Validate the complete payload before replacing the working backend.
     bootstrap = cloud_init(compartment)
-    if len(bootstrap.encode()) > 31000:
+    if len(bootstrap.encode()) > 32000:
         raise ValueError("Compressed startup data is too large; split the package before replacing the server")
     if args.replace_server and state.get("instance"):
         print("Replacing the backend; coordinator state stays in private versioned storage and saved visits stay on the iPhone.", flush=True)
@@ -243,7 +243,7 @@ def main():
     print("Waiting for managed HTTPS gateway…", flush=True)
     result = oci.wait_until(gateway, gateway.get_gateway(gateway_id), "lifecycle_state", "ACTIVE", max_wait_seconds=900).data
     routes = []
-    user_routes = [("/users/me", ["GET"])] + [(p, ["POST"]) for p in (
+    user_routes = [("/users/me", ["GET"]), ("/users/sms/consent", ["GET", "POST"])] + [(p, ["POST"]) for p in (
         "/users/auth/start", "/users/auth/check", "/users/logout", "/users/profile", "/users/circles/create",
         "/users/circles/join", "/users/circles/rotate", "/users/circles/leave")]
     for path, methods in user_routes + [("/health", ["GET"]), ("/appointments", ["GET", "POST"]), ("/coordinator", ["GET"]), ("/sms/consent", ["GET", "POST"]),

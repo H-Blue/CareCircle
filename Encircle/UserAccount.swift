@@ -1,7 +1,7 @@
 import SwiftUI
 import Security
 
-private enum AccountCredential {
+enum AccountCredential {
     private static var query: [String: Any] {
         var name = "phone-sign-in"
         #if DEBUG && targetEnvironment(simulator)
@@ -31,6 +31,18 @@ private enum AccountCredential {
         guard status == errSecSuccess else { throw ConnectionError.message("Couldn’t save your sign-in securely. Please try again.") }
     }
     static func clear() { SecItemDelete(query as CFDictionary) }
+}
+
+enum AccountServer {
+    static var address: String {
+        let configured = UserDefaults.standard.string(forKey: "encircleServerAddress") ?? ""
+        var address = configured.isEmpty ? "https://i7z5l4w5pojyo73cx4e7qb3iom.apigateway.us-chicago-1.oci.customer-oci.com/v1" : configured
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--test-account-flow"),
+           let testAddress = ProcessInfo.processInfo.environment["ENCIRCLE_ACCOUNT_TEST_ADDRESS"] { address = testAddress }
+        #endif
+        return address
+    }
 }
 
 struct CircleMember: Decodable, Identifiable {
@@ -70,12 +82,7 @@ private struct AccountRequestError: LocalizedError {
     private var token = AccountCredential.read()
 
     private func request(_ path: String, payload: [String: String]? = nil) async throws -> Data {
-        let configured = UserDefaults.standard.string(forKey: "encircleServerAddress") ?? ""
-        var address = configured.isEmpty ? "https://i7z5l4w5pojyo73cx4e7qb3iom.apigateway.us-chicago-1.oci.customer-oci.com/v1" : configured
-        #if DEBUG && targetEnvironment(simulator)
-        if ProcessInfo.processInfo.arguments.contains("--test-account-flow"),
-           let testAddress = ProcessInfo.processInfo.environment["ENCIRCLE_ACCOUNT_TEST_ADDRESS"] { address = testAddress }
-        #endif
+        let address = AccountServer.address
         var request = URLRequest(url: try EncircleAPI.validatedURL(address).appendingPathComponent(path))
         request.timeoutInterval = 45
         request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -169,6 +176,7 @@ struct UserAccountView: View {
                 Section("Your account") {
                     Text(snapshot.user.name).font(.title2)
                     Text(snapshot.user.phone).foregroundStyle(.secondary)
+                    NavigationLink("SMS consent & preferences") { SMSConsentView() }
                     NavigationLink("Edit your name") { EditAccountNameView(account: account, name: snapshot.user.name) }
                 }
                 Section("Your circles") {

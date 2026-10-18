@@ -237,7 +237,8 @@ def make_handler(chat, token, voice=None, coordinator=None, accounts=None):
                         raise UserError("Send a small JSON account request.")
                     payload = json.loads(self.rfile.read(length))
                     if not isinstance(payload, dict): raise UserError("Invalid account request.")
-                if self.path == "/users/me" and not post: result = accounts.me(session)
+                if self.path == "/users/sms/consent": result = accounts.consent(session, payload if post else None)
+                elif self.path == "/users/me" and not post: result = accounts.me(session)
                 elif self.path == "/users/auth/start" and post: result = accounts.start(payload)
                 elif self.path == "/users/auth/check" and post: result = accounts.check(payload)
                 elif post and self.path in ("/users/logout", "/users/profile", "/users/circles/create", "/users/circles/join", "/users/circles/rotate", "/users/circles/leave"):

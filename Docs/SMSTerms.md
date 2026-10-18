@@ -2,11 +2,11 @@
 
 Effective October 18, 2026. Program: **Encircle appointment and transport messages**. Disclosure version: `2026-10-18-encircle-v2`.
 
-By entering your own mobile number, checking the initially unchecked SMS agreement box, and selecting **Save SMS consent** in the Encircle app, you authorize automated operational messages about appointment transportation requests, ride confirmations, changes, and circle-leader updates. No marketing messages are part of this program.
+By signing in with your own verified mobile number (or entering your own number in the original owner demo), checking the initially unchecked SMS agreement box, and selecting **Save SMS consent** in the Encircle app, you authorize automated operational messages about appointment transportation requests, ride confirmations, changes, and circle-leader updates. No marketing messages are part of this program.
 
 Message frequency varies with appointment activity and replies. Message and data rates may apply according to your carrier plan. The current developer deployment has a shared limit of 20 outgoing messages per UTC day; a message may use multiple carrier-billed SMS segments. Delivery depends on carrier availability and sender/recipient eligibility.
 
-SMS consent is optional. It is not a condition of purchase or use of Encircle's other features. A saved agreement does not bypass Twilio sender verification. The current prototype is restricted to the owner's configured number and synthetic appointment data; it is not a general public signup or a hospital scheduling service.
+SMS consent is optional. It is not a condition of purchase or use of Encircle's other features. A saved agreement does not bypass Twilio sender verification. Any phone-verified account may save its own SMS preferences. Sign-in texts currently support user-requested US/Canada numbers subject to Twilio trial recipient eligibility. New account/circle transport messaging is not yet connected. The separate original transport demo remains restricted to the owner's configured number and synthetic appointment data; it is not a hospital scheduling service.
 
 ## Stop and help
 

@@ -14,6 +14,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timezone
+import sms_consent
 
 
 class UserError(Exception):
@@ -105,9 +106,10 @@ class VerifyProvider:
             os.environ["TWILIO_VERIFY_SERVICE_SID"])
         # Preserve the authorized trial/demo destination restriction until explicitly changed.
         self.allowed = set(os.environ.get("TWILIO_ALLOWED_NUMBERS", "").split(","))
+        self.self_service = os.environ.get("TWILIO_VERIFY_SELF_SERVICE") == "1"
 
     def validate(self, phone):
-        if phone not in self.allowed:
+        if phone not in self.allowed and not (self.self_service and phone.startswith("+1")):
             raise UserError("Phone sign-in currently supports the configured test number only. Other people can join after Twilio account eligibility and recipient access are enabled.", 403)
 
     def send(self, phone):
@@ -216,6 +218,43 @@ class Accounts:
 
     def me(self, token):
         return self.store.update(lambda data: self.snapshot(data, self.identity(data, token)))
+
+    def consent(self, token, payload=None):
+        def change(data):
+            uid = self.identity(data, token)
+            user = data["users"][uid]
+            previous = user.get("sms_consent")
+            if payload is not None:
+                action = payload.get("action")
+                if action not in ("accept", "withdraw"): raise UserError("Choose accept or withdraw.")
+                if phone_number(payload.get("phone")) != user["phone"]:
+                    raise UserError("You can save consent only for your own verified sign-in number.", 403)
+                if action == "accept":
+                    if payload.get("accepted") is not True or payload.get("version") != sms_consent.VERSION:
+                        raise UserError("Read the current disclosure and check the agreement box.")
+                    name = label(payload.get("name"), "your name")
+                    if not previous or not previous["active"] or previous["version"] != sms_consent.VERSION or previous["name"] != name:
+                        user["sms_consent"] = {"id": uuid.uuid4().hex, "name": name, "phone": user["phone"],
+                            "version": sms_consent.VERSION, "disclosure": sms_consent.DISCLOSURE, "active": True,
+                            "accepted_at": datetime.fromtimestamp(self.clock(), timezone.utc).isoformat(timespec="seconds"),
+                            "source": "ios_app", "auth_context": "phone_verified_user"}
+                elif previous and previous["active"]:
+                    user["sms_consent"] = {**previous, "active": False,
+                        "revoked_at": datetime.fromtimestamp(self.clock(), timezone.utc).isoformat(timespec="seconds")}
+                # Keep a bounded private history; duplicate identical submissions add no event.
+                if previous != user.get("sms_consent"):
+                    history = user.setdefault("sms_consent_history", [])
+                    history.append(copy.deepcopy(user["sms_consent"]))
+                    user["sms_consent_history"] = history[-10:]
+            receipt = user.get("sms_consent")
+            return {"program": sms_consent.PROGRAM, "version": sms_consent.VERSION,
+                "disclosure": sms_consent.DISCLOSURE, "checkbox_label": sms_consent.CHECKBOX,
+                "privacy_url": sms_consent.PRIVACY_URL, "terms_url": sms_consent.TERMS_URL, "proof_url": sms_consent.PROOF_URL,
+                "active": bool(receipt and receipt["active"] and receipt["version"] == sms_consent.VERSION),
+                "opted_out_by_sms": False, "transport_connected": False,
+                "verified_name": user["name"], "verified_phone": user["phone"],
+                "receipt": {k: receipt[k] for k in ("id", "name", "phone", "accepted_at", "revoked_at", "version") if k in receipt} if receipt else None}
+        return self.store.update(change)
 
     def action(self, token, path, payload):
         def change(data):

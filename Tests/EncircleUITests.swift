@@ -43,6 +43,23 @@ final class EncircleUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Family"].exists)
         XCTAssertFalse(app.staticTexts["Circle invitation code"].exists)
         app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["SMS consent & preferences"].tap()
+        XCTAssertTrue(app.staticTexts["SMS disclosure"].waitForExistence(timeout: 5))
+        let checkbox = app.buttons["SMS consent checkbox"]
+        for _ in 0..<5 { if checkbox.isHittable { break }; app.swipeUp() }
+        XCTAssertEqual(app.textFields["SMS consent name"].value as? String, "Demo Family")
+        XCTAssertEqual(app.textFields["SMS consent phone"].value as? String, "+15555550124")
+        XCTAssertFalse(app.textFields["SMS consent phone"].isEnabled)
+        XCTAssertEqual(checkbox.value as? String, "Unchecked")
+        checkbox.tap()
+        app.buttons["Save SMS consent"].tap()
+        let withdraw = app.buttons["Withdraw SMS consent"]
+        for _ in 0..<5 { if withdraw.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(withdraw.isHittable)
+        XCTAssertTrue(app.staticTexts["SMS consent status"].exists)
+        withdraw.tap()
+        XCTAssertTrue(app.staticTexts["Your SMS consent has been withdrawn."].waitForExistence(timeout: 5))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["Sign out"].tap()
     }
 
@@ -59,10 +76,10 @@ final class EncircleUITests: XCTestCase {
         let top = XCTAttachment(screenshot: app.screenshot())
         top.name = "Encircle-SMS-disclosure"; top.lifetime = .keepAlways; add(top)
         let checkbox = app.buttons["SMS consent checkbox"]
-        for _ in 0..<3 { if checkbox.isHittable { break }; app.swipeUp() }
+        let save = app.buttons["Save SMS consent"]
+        for _ in 0..<5 { if checkbox.isHittable && save.isHittable { break }; app.swipeUp() }
         XCTAssertTrue(checkbox.isHittable)
         XCTAssertEqual(checkbox.value as? String, "Unchecked")
-        let save = app.buttons["Save SMS consent"]
         XCTAssertFalse(save.isEnabled)
         XCTAssertEqual(app.textFields["SMS consent name"].value as? String, "Your name")
         XCTAssertEqual(app.textFields["SMS consent phone"].value as? String, "Your mobile number")

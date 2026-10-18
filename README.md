@@ -52,4 +52,4 @@ SMS signup is available in **Menu → Apple Calendar & transport → SMS consent
 
 The Encircle rename updates existing developer installations in place. Saved visits, private connection settings, calendar events, and cloud coordinator data are preserved.
 
-Phone sign-in and circle membership are available in **Menu → Your account**. Users can create a circle as its leader or join by invitation as family/friend. Profiles and memberships persist in Oracle NoSQL. The current Twilio trial limits sign-in to configured test numbers; existing demo appointments and recordings remain separate. See [account setup and limitations](Docs/UserAccounts.md).
+Phone sign-in and circle membership are available in **Menu → Your account**. Users can create a circle as its leader or join by invitation as family/friend. Profiles and memberships persist in Oracle NoSQL. User-requested US/Canada sign-in is enabled; the Twilio trial still requires verified recipient numbers. Signed-in users can save consent for their own verified number. Existing demo appointments and recordings remain separate. See [account setup and limitations](Docs/UserAccounts.md).
